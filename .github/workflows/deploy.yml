@@ -1,0 +1,56 @@
+# 1·2학년 자습실 좌석배치도 — 체험 페이지(학생 · 교사)를 깃허브 Pages 로 배포한다.
+# © 2026 티쳐무 · 모든 권리 보유
+# 실제 앱은 구글 앱스 스크립트에서 돈다. 여기서 올리는 것은 가짜 시트 위에서 도는 체험판뿐이다.
+name: 체험 페이지 배포
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 점검 (문법 · 앱스 스크립트 함정 · 저작권 · 비밀번호 원문)
+        run: npm run check
+      - name: 시험 (가짜 시트 위의 진짜 Code.gs)
+        run: npm test
+      - name: 체험 페이지 만들기
+        run: npm run site
+      - name: 빌드 결과 점검
+        run: |
+          for f in index.html student.html teacher.html; do test -s "dist/site/$f" || { echo "없음: $f"; exit 1; }; done
+          size=$(wc -c < dist/site/teacher.html)
+          echo "teacher.html = $size bytes"
+          test "$size" -gt 100000
+          grep -q "티쳐무" dist/site/index.html
+          grep -q "티쳐무" dist/site/student.html
+          grep -q "티쳐무" dist/site/teacher.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

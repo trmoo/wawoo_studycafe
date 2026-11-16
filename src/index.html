@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<!--
+  1·2학년 자습실 좌석배치도 — 학생 화면
+  © 2026 티쳐무 · 모든 권리 보유 (오픈소스 라이선스 없음)
+  학교 수업·학급 운영 목적으로만 이용해 주세요. 그 밖의 이용은 먼저 문의해 주세요.
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <!-- 앱스 스크립트는 이 meta 를 지우고 Code.gs 의 addMetaTag 로 다시 넣는다(미리보기용으로 적어 둔다). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <base target="_top">
+  <title>1·2학년 자습실 좌석배치도</title>
+  <?!= include('css'); ?>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1 class="title">★ 1·2학년 자습실 좌석배치도 ★</h1>
+  </header>
+
+  <section class="card gate hidden" id="gate"></section>
+
+  <section id="app" class="hidden">
+    <div class="pillrow">
+      <span class="pill">배정 <b id="cntTaken">0</b> 석 · 빈자리 <b id="cntFree">0</b> 석</span>
+      <span class="pill" id="todayPill"></span>
+      <span class="pill">갱신 <span id="updated">-</span></span>
+    </div>
+    <div class="card status">
+      <div>
+        <div class="big" id="mineText"></div>
+        <div class="note" id="whyText"></div>
+      </div>
+      <div>
+        <button class="btn" type="button" id="btnRefresh">↻ 새로 불러오기</button>
+        <button class="btn" type="button" id="btnLogout">나가기</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="mapbox" id="mapbox"></div>
+      <div class="legend">
+        <span><i style="background:#c6dbf3"></i>다른 학생이 앉은 자리</span>
+        <span><i style="box-shadow:inset 0 0 0 3px #111827"></i>★ 내 자리</span>
+        <span>빈자리를 누르면 그 자리로 정합니다</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <b>1·2학년 자습실 좌석배치도</b> · © 2026 티쳐무 · 모든 권리 보유. 학교 수업·학급 운영 목적으로만 이용해 주세요.<br>
+  학번 · 이름 · PIN 만 씁니다. PIN 은 해시로만 저장되어 선생님도 볼 수 없습니다. 다른 학생의 이름은 가려서 보입니다.
+</footer>
+
+<script>var BOOT_DATA = <?!= BOOT ?>;</script>
+<?!= include('layout'); ?>
+<?!= include('core'); ?>
+<?!= include('student'); ?>
+</body>
+</html>

@@ -1,0 +1,249 @@
+<script>
+/*!
+ * 화면 부품 — 서버 부르기 · 기다림 안내 · 창 · 좌석배치도 그리기
+ * © 2026 티쳐무 · 모든 권리 보유
+ *
+ * ⚠ 앱스 스크립트는 <script> 안의 「슬래시 두 개」 부터 줄 끝까지를 주석으로 보고 지울 수 있다.
+ *   글자열 안에 주소(https 콜론 슬래시 슬래시)를 적지 말 것 — tools/check.js 가 막는다.
+ * ⚠ 학생 · 선생님이 적은 글은 언제나 textContent 로 넣는다 (innerHTML 금지 — 남이 심은 코드가 돌지 않게).
+ */
+
+/** h('div', {class:'x', onclick: fn}, '글자', 자식…) — 글자는 언제나 글자 그대로 들어간다 */
+function h(tag, attrs) {
+  var el = document.createElement(tag);
+  if (attrs) {
+    Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k === 'style') el.setAttribute('style', v);
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+      else if (k === 'value') el.value = v;
+      else if (k === 'checked') el.checked = !!v;
+      else el.setAttribute(k, v === true ? '' : String(v));
+    });
+  }
+  for (var i = 2; i < arguments.length; i++) add_(el, arguments[i]);
+  return el;
+}
+function add_(el, kid) {
+  if (kid === null || kid === undefined || kid === false) return;
+  if (Array.isArray(kid)) { kid.forEach(function (k) { add_(el, k); }); return; }
+  el.appendChild(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+}
+function $(id) { return document.getElementById(id); }
+function fill(el, kids) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+  add_(el, kids);
+  return el;
+}
+
+/* ── 서버 부르기 ──────────────────────────────────────────
+   · 서버가 「바쁨(busy)」 을 돌려주거나 연결이 끊기면 저절로 다시 보낸다.
+   · 3.5초가 넘게 걸리면 「새로고침하지 말고 기다려 주세요」 띠를 띄운다.
+   · quiet 이면(저절로 하는 갱신) 띠를 띄우지 않고 한 번만 해 본다 — 다음 갱신 때 다시 하면 된다. */
+var IS_PREVIEW = typeof FAKE_SERVER === 'function';
+var pending_ = 0;
+
+function call(fn, args, opts) {
+  opts = opts || {};
+  args = args || [];
+  return new Promise(function (resolve) {
+    var tries = 0;
+    var finished = false;
+    if (!opts.quiet) pending_++;
+    var slow = opts.quiet ? null : setTimeout(function () {
+      showWait('⏳ 응답을 기다리는 중입니다. 새로고침하지 말고 잠시만 기다려 주세요…');
+    }, 3500);
+    function done(r) {
+      if (finished) return;
+      finished = true;
+      if (slow) clearTimeout(slow);
+      if (!opts.quiet) { pending_--; if (pending_ <= 0) { pending_ = 0; hideWait(); } }
+      resolve(r);
+    }
+    function again(msg, wait) {
+      if (!opts.quiet) showWait(msg);
+      setTimeout(attempt, wait);
+    }
+    function onOk(r) {
+      r = r || { ok: false, msg: '서버가 빈 응답을 보냈습니다.' };
+      if (r.busy && !opts.quiet && tries < 6) {
+        again('⏳ 지금 접속한 사람이 많아 차례를 기다리는 중입니다 (' + tries + '/5). 새로고침하지 마세요 — 저절로 다시 보냅니다.',
+          900 * tries + Math.random() * 1600);
+        return;
+      }
+      done(r);
+    }
+    function onErr() {
+      if (!opts.quiet && tries < 4) {
+        again('📶 연결이 불안정합니다. 다시 보내는 중… 새로고침하지 마세요.', 1500 * tries);
+        return;
+      }
+      done({ ok: false, net: true, msg: '서버에 연결하지 못했습니다. 잠시 뒤 다시 해 주세요.' });
+    }
+    function attempt() {
+      tries++;
+      if (IS_PREVIEW) {
+        setTimeout(function () {
+          try { onOk(JSON.parse(JSON.stringify(FAKE_SERVER(fn, args)))); } catch (e) { console.error(e); onErr(); }
+        }, 120 + Math.random() * 120);
+        return;
+      }
+      var run = google.script.run.withSuccessHandler(onOk).withFailureHandler(onErr);
+      run[fn].apply(run, args);
+    }
+    attempt();
+  });
+}
+
+/* 저장 중에 창을 닫거나 새로고침하려 하면 브라우저가 한 번 묻는다 */
+window.addEventListener('beforeunload', function (e) {
+  if (pending_ > 0) { e.preventDefault(); e.returnValue = ''; }
+});
+
+function showWait(msg) {
+  var w = $('wait');
+  if (!w) { w = h('div', { id: 'wait', role: 'status' }); document.body.appendChild(w); }
+  w.textContent = msg;
+  w.classList.remove('hidden');
+}
+function hideWait() { var w = $('wait'); if (w) w.classList.add('hidden'); }
+
+var toastTimer_ = null;
+function toast(msg, ms) {
+  var t = $('toast');
+  if (!t) { t = h('div', { id: 'toast', role: 'status' }); document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer_);
+  toastTimer_ = setTimeout(function () { t.classList.add('hidden'); }, ms || 2600);
+}
+
+/* ── 창 (브라우저 기본 alert · confirm 은 쓰지 않는다 — 주소가 붙어 보여 학생이 헷갈린다) ── */
+function modal(title, body, buttons) {
+  closeModal();
+  var foot = h('div', { class: 'foot' });
+  var bg = h('div', { class: 'modal-bg', id: 'modalbg', onclick: function (e) { if (e.target === bg) closeModal(); } },
+    h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' }, h('h3', null, title), body, foot));
+  (buttons || [{ label: '닫기' }]).forEach(function (b) {
+    foot.appendChild(h('button', {
+      class: 'btn ' + (b.cls || ''), type: 'button',
+      onclick: function () { if (!b.onclick || b.onclick() !== false) closeModal(); }
+    }, b.label));
+  });
+  document.body.appendChild(bg);
+  var first = bg.querySelector('input, textarea, button.primary');
+  if (first) first.focus();
+  return bg;
+}
+function closeModal() { var m = $('modalbg'); if (m) m.remove(); }
+function ask(title, text, okLabel) {
+  return new Promise(function (resolve) {
+    modal(title, h('p', null, text), [
+      { label: '취소', onclick: function () { resolve(false); } },
+      { label: okLabel || '확인', cls: 'primary', onclick: function () { resolve(true); } }
+    ]);
+    var bg = $('modalbg');
+    bg.addEventListener('click', function (e) { if (e.target === bg) resolve(false); });
+  });
+}
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+
+/* ── 좌석배치도 ──────────────────────────────────────────
+   seatView(no) 가 { cls, kids, onclick, title } 를 돌려주면 그대로 그린다. */
+function pct(v, total) { return (v / total * 100).toFixed(3) + '%'; }
+function drawMap(box, seatView) {
+  var map = h('div', { class: 'map' });
+  LAYOUT.fixtures.forEach(function (f) {
+    map.appendChild(h('div', {
+      class: 'fix ' + f.kind,
+      style: 'left:' + pct(f.x, LAYOUT.W) + ';top:' + pct(f.y, LAYOUT.H) + ';width:' + pct(f.w, LAYOUT.W) + ';height:' + pct(f.h, LAYOUT.H)
+    }, f.label));
+  });
+  LAYOUT.seats.forEach(function (s) {
+    var v = seatView(s.no) || {};
+    var el = h('div', {
+      class: 'seat z-' + s.zone + ' ' + (v.cls || ''),
+      style: 'left:' + pct(s.x, LAYOUT.W) + ';top:' + pct(s.y, LAYOUT.H) + ';width:' + pct(s.w, LAYOUT.W) + ';height:' + pct(s.h, LAYOUT.H),
+      title: v.title || (s.no + '번'),
+      'data-no': s.no,
+      role: v.onclick ? 'button' : null,
+      tabindex: v.onclick ? '0' : null,
+      onclick: v.onclick || null,
+      onkeydown: v.onclick ? function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); v.onclick(); } } : null
+    }, v.kids || h('span', { class: 'no' }, s.no));
+    map.appendChild(el);
+  });
+  fill(box, map);
+  return map;
+}
+
+/** 좌석 이름 칸 — 네 글자 이상이면 조금 작게 (좌석 밖으로 넘치지 않게) */
+function nameSpan(name) {
+  return h('span', { class: 'nm' + (String(name).length >= 4 ? ' long' : '') }, name);
+}
+
+/**
+ * 휴대폰에서 배치도 크기 고르기 — 🔍 크게 보기(옆으로 밀기) / 🗺 한눈에 보기.
+ * 단추 줄은 화면이 좁을 때만 보인다(css .zoombar). 고른 것은 이 탭에 기억한다.
+ */
+function zoomBar(box) {
+  if (box.previousElementSibling && box.previousElementSibling.classList.contains('zoombar')) return;
+  var mode = store('sc12-zoom') || 'big';
+  var bar = h('div', { class: 'zoombar' });
+  function pickMode(m) { mode = m; store('sc12-zoom', m); apply(); }
+  function apply() {
+    box.classList.toggle('big', mode === 'big');
+    fill(bar, [
+      h('button', { class: 'btn small' + (mode === 'big' ? ' on' : ''), type: 'button', onclick: function () { pickMode('big'); } }, '🔍 크게 보기'),
+      h('button', { class: 'btn small' + (mode === 'fit' ? ' on' : ''), type: 'button', onclick: function () { pickMode('fit'); } }, '🗺 한눈에 보기'),
+      h('span', { class: 'note' }, mode === 'big' ? '배치도를 손가락으로 옆으로 밀어서 보세요 ↔' : '글자가 작으면 「크게 보기」 를 누르세요')
+    ]);
+  }
+  apply();
+  box.parentNode.insertBefore(bar, box);
+}
+
+/** 크게 보기에서 그 좌석이 화면 가운데 오게 옆으로 민다 */
+function scrollToSeat(box, no) {
+  var el = box.querySelector('[data-no="' + no + '"]');
+  if (!el || box.scrollWidth <= box.clientWidth) return;
+  box.scrollLeft = Math.max(0, el.offsetLeft - box.clientWidth / 2 + el.offsetWidth / 2);
+}
+
+/** 저절로 하는 갱신 — 탭이 숨어 있으면 쉬고, 사람마다 시차를 두어 한꺼번에 몰리지 않게 한다 */
+function poller(fn, baseMs) {
+  var timer = null, stopped = false;
+  function next() {
+    clearTimeout(timer);
+    if (stopped) return;
+    timer = setTimeout(tick, baseMs + Math.random() * baseMs * 0.5);
+  }
+  function tick() {
+    if (stopped) return;
+    if (document.hidden) { next(); return; }
+    Promise.resolve(fn()).then(next, next);
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && !stopped) { clearTimeout(timer); tick(); } });
+  next();
+  return { stop: function () { stopped = true; clearTimeout(timer); }, now: function () { clearTimeout(timer); tick(); } };
+}
+
+function store(k, v) {
+  try {
+    if (v === undefined) return sessionStorage.getItem(k);
+    if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v);
+  } catch (e) { return null; }
+  return null;
+}
+
+function nowText() {
+  var d = new Date();
+  return (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + d.toTimeString().slice(0, 8);
+}
+function dateLabel(date) {
+  var p = date.split('-');
+  return Number(p[1]) + '월 ' + Number(p[2]) + '일';
+}
+</script>

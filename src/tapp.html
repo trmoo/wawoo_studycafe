@@ -1,0 +1,620 @@
+<script>
+/*!
+ * 교사 화면 — 🪑 야자감독 · 📋 출석부 · 🧑‍🏫 담임교사
+ * © 2026 티쳐무 · 모든 권리 보유
+ */
+var STATUS_KEY = { '출석': 'present', '지각': 'late', '조퇴': 'early', '자리비움': 'away', '결석': 'absent', '사유': 'excused' };
+var STATUS_MARK = { '출석': '○', '지각': '지', '조퇴': '조', '자리비움': '비', '결석': '✕', '사유': '사' };
+var MODES = [
+  { key: 'detail', label: '📝 자세히' },
+  { key: '자리비움', label: '자리비움', cls: 'm-away' },
+  { key: '결석', label: '결석', cls: 'm-absent' },
+  { key: '지각', label: '지각', cls: 'm-late' },
+  { key: '조퇴', label: '조퇴', cls: 'm-early' },
+  { key: '사유', label: '사유', cls: 'm-excused' },
+  { key: '출석', label: '✔ 출석' }
+];
+var MEMO_CHIPS = ['출석 표시했으나 자리에 없음', '병원(사전 연락)', '학교 행사', '보호자 연락 후 조기 귀가', '자리 옮김'];
+
+var T = {
+  /* 체험판 · 미리보기는 새로 고칠 때마다 가짜 시트가 새로 깔리므로 지난 접속표를 쓰지 않는다 */
+  token: BOOT_DATA.preview ? null : store('sc12-t'), name: store('sc12-tn') || '', tab: store('sc12-tab') || 'sup',
+  date: '', period: 1, mode: 'detail', board: null, ver: '', roster: null, poll: null, search: '',
+  rollGrade: Number(store('sc12-rg') || 1), rollDate: '', cls: store('sc12-cls') || '1-1'
+};
+
+/* ── 로그인 ── */
+function tGate(msg) {
+  $('app').classList.add('hidden');
+  $('who').classList.add('hidden');
+  var gate = $('gate');
+  gate.classList.remove('hidden');
+  var nm = h('input', { type: 'text', maxlength: '6', autocomplete: 'off', placeholder: '예: 김선생' });
+  var pw = h('input', { type: 'password', maxlength: '30', autocomplete: 'current-password' });
+  var box = h('div');
+  var btn = h('button', { class: 'btn primary', type: 'submit', style: 'width:100%;margin-top:6px' }, '들어가기');
+  fill(gate, h('form', {
+    onsubmit: function (e) {
+      e.preventDefault();
+      var n = nm.value.trim();
+      if (!/^[가-힣]{2,6}$/.test(n)) { fill(box, h('div', { class: 'msg' }, '이름은 한글 2~6자로 적어 주세요.')); return; }
+      if (!pw.value) { fill(box, h('div', { class: 'msg' }, '교사용 비밀번호를 넣어 주세요.')); return; }
+      btn.disabled = true;
+      call('apiTLogin', [n, pw.value]).then(function (r) {
+        btn.disabled = false;
+        if (!r.ok) { fill(box, h('div', { class: 'msg' }, r.msg)); return; }
+        T.token = r.token; T.name = r.name;
+        store('sc12-t', r.token); store('sc12-tn', r.name);
+        T.date = r.today;
+        start();
+      });
+    }
+  },
+    h('h2', null, '🧑‍🏫 교사 로그인'),
+    h('p', { class: 'note' }, '이름은 출결을 기록할 때 「감독 교사」 로 남습니다.'),
+    h('label', { class: 'field' }, h('span', null, '이름'), nm),
+    h('label', { class: 'field' }, h('span', null, '교사용 비밀번호'), pw),
+    btn, box));
+  if (msg) fill(box, h('div', { class: 'msg info' }, msg));
+  nm.focus();
+}
+
+function tLogout(msg) {
+  if (T.poll) { T.poll.stop(); T.poll = null; }
+  if (T.token) call('apiLogout', [T.token], { quiet: true });
+  T.token = null; T.board = null; T.roster = null; T.ver = '';
+  store('sc12-t', null); store('sc12-tn', null);
+  tGate(msg);
+}
+
+/** 서버가 「다시 들어오세요」 라고 하면 로그인 화면으로 */
+function tCall(fn, args, opts) {
+  return call(fn, [T.token].concat(args || []), opts).then(function (r) {
+    if (!r.ok && r.relogin) { tLogout('접속이 끝났습니다. 다시 들어와 주세요.'); return { ok: false, msg: '' }; }
+    return r;
+  });
+}
+
+function start() {
+  $('gate').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  var who = $('who');
+  who.classList.remove('hidden');
+  fill(who, [T.name + ' 선생님', h('button', { class: 'btn small', type: 'button', onclick: function () { tLogout(); } }, '나가기')]);
+  if (!T.date) T.date = todayLocal();
+  loadRoster();
+  showTab(T.tab);
+}
+
+function todayLocal() {
+  var d = new Date();
+  var mm = d.getMonth() + 1, dd = d.getDate();
+  return d.getFullYear() + '-' + (mm < 10 ? '0' : '') + mm + '-' + (dd < 10 ? '0' : '') + dd;
+}
+
+function loadRoster() {
+  return tCall('apiTRoster', [], { quiet: true }).then(function (r) {
+    if (r.ok) { T.roster = r.list; if (T.tab === 'class') renderClass(); if (T.tab === 'sup') renderFind(); }
+  });
+}
+
+/* ── 탭 ── */
+var TABS = [
+  { key: 'sup', label: '🪑 야자감독' },
+  { key: 'roll', label: '📋 출석부' },
+  { key: 'class', label: '🧑‍🏫 담임교사' }
+];
+function showTab(key) {
+  T.tab = key; store('sc12-tab', key);
+  fill($('tabs'), TABS.map(function (t) {
+    return h('button', { class: 'tab' + (t.key === key ? ' on' : ''), type: 'button', onclick: function () { showTab(t.key); } }, t.label);
+  }));
+  if (T.poll) { T.poll.stop(); T.poll = null; }
+  closeModal();
+  if (key === 'sup') { buildSup(); T.ver = ''; loadBoard(false); T.poll = poller(function () { return loadBoard(true); }, 10000); }
+  if (key === 'roll') buildRoll();
+  if (key === 'class') buildClass();
+}
+
+/* ═════════ 🪑 야자감독 ═════════ */
+function buildSup() {
+  var search = h('input', { type: 'text', maxlength: '10', placeholder: '이름 또는 학번 찾기', value: T.search,
+    oninput: function () { T.search = search.value.trim(); renderMap(); renderFind(); } });
+  var date = h('input', { type: 'date', value: T.date,
+    onchange: function () { if (date.value) { T.date = date.value; T.ver = ''; T.board = null; loadBoard(false); } } });
+  fill($('pane'), [
+    h('div', { class: 'pillrow' },
+      h('span', { class: 'pill' }, '배정 ', h('b', { id: 'cTaken' }, '0'), ' 석 · 빈자리 ', h('b', { id: 'cFree' }, '0'), ' 석'),
+      h('span', { class: 'pill' }, search),
+      h('span', { class: 'pill' }, '갱신 ', h('span', { id: 'updated' }, '-'))),
+    h('div', { class: 'card noprint' },
+      h('div', { class: 'toolbar' },
+        date,
+        h('span', { class: 'seg', id: 'periods' }),
+        h('span', { class: 'seg', id: 'modes' }),
+        h('span', { class: 'counts', id: 'counts' })),
+      h('div', { class: 'toolbar' }, h('div', { class: 'hint', id: 'hint' }))),
+    h('div', { class: 'card' },
+      h('div', { class: 'mapbox', id: 'mapbox' }),
+      h('div', { class: 'legend' },
+        h('span', null, h('i', { class: 'l1' }), '1학년'),
+        h('span', null, h('i', { class: 'l2' }), '2학년'),
+        h('span', null, '줄무늬 = 자리비움·결석·사유'),
+        h('span', null, '📝 = 메모 있음'),
+        h('span', { id: 'supNames' }))),
+    h('div', { class: 'grid2' },
+      h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🚪 신청했지만 자리를 안 고른 학생 ', h('span', { id: 'missCnt', class: 'tag bad' }, '0')),
+        h('p', { class: 'note' }, '결석이면 [결석], 병원·행사 등으로 미리 빠지면 [자세히] 에서 「사유」 와 메모를 남기세요.'),
+        h('div', { id: 'missList' })),
+      h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🔎 학생 찾기 · PIN 초기화'),
+        h('p', { class: 'note' }, '위 찾기 칸에 이름이나 학번을 적으면 전체 명단에서 찾습니다. PIN 을 잊은 학생은 여기서 초기화하세요.'),
+        h('div', { id: 'findList' })))
+  ]);
+  zoomBar($('mapbox'));
+  renderControls();
+}
+
+function renderControls() {
+  fill($('periods'), [1, 2].map(function (p) {
+    return h('button', { class: 'btn' + (T.period === p ? ' on' : ''), type: 'button', onclick: function () { T.period = p; renderControls(); renderMap(); } }, p + '교시');
+  }));
+  fill($('modes'), MODES.map(function (m) {
+    return h('button', { class: 'btn mode ' + (m.cls || '') + (T.mode === m.key ? ' on' : ''), type: 'button',
+      onclick: function () { T.mode = m.key; renderControls(); } }, m.label);
+  }));
+  $('hint').textContent = T.mode === 'detail'
+    ? T.period + '교시 · 좌석을 누르면 출결 · 메모 · PIN 초기화 창이 열립니다.'
+    : T.period + '교시 · 좌석을 누르면 「' + T.mode + '」 로 표시하고, 다시 누르면 풉니다.';
+}
+
+function loadBoard(quiet) {
+  if (!T.token) return Promise.resolve();
+  return tCall('apiTBoard', [T.date, quiet ? T.ver : ''], { quiet: quiet }).then(function (r) {
+    if (!r.ok) { if (!quiet && r.msg) toast(r.msg, 4000); return; }
+    if (!(r.same && T.board)) T.board = r;
+    T.ver = r.ver;
+    if ($('updated')) $('updated').textContent = nowText();
+    if (T.tab === 'sup') { renderMap(); renderMiss(); renderFind(); }
+  });
+}
+
+function bySeat() {
+  var m = {};
+  (T.board ? T.board.list : []).forEach(function (s) { if (s.seat) m[s.seat] = s; });
+  return m;
+}
+function matches(s) {
+  var q = T.search;
+  if (!q) return false;
+  return s.name.indexOf(q) >= 0 || s.sid.indexOf(q) >= 0;
+}
+function pOf(s) { return s['p' + T.period] || ''; }
+
+function renderMap() {
+  if (!$('mapbox')) return;
+  var b = T.board;
+  var seats = bySeat();
+  var taken = Object.keys(seats).length;
+  $('cTaken').textContent = taken;
+  $('cFree').textContent = BOOT_DATA.seatMax - taken;
+  var cnt = { '자리비움': 0, '결석': 0, '지각': 0, '조퇴': 0, '사유': 0 };
+  (b ? b.list : []).forEach(function (s) { var p = pOf(s); if (cnt[p] !== undefined) cnt[p]++; });
+  fill($('counts'), Object.keys(cnt).map(function (k) {
+    return h('span', null, k + ' ', h('b', { style: 'color:' + ({ '자리비움': '#dc2626', '결석': '#374151', '지각': '#d97706', '조퇴': '#7c3aed', '사유': '#0f766e' })[k] }, cnt[k]));
+  }));
+  $('supNames').textContent = b ? dateLabel(b.date) + '(' + b.dayName + ') 감독 교사: ' + (b.sups && b.sups.length ? b.sups.join(', ') : '아직 없음') : '';
+  drawMap($('mapbox'), function (no) {
+    var s = seats[no];
+    if (!s) return { cls: 'empty', title: no + '번 · 빈자리' };
+    var p = pOf(s);
+    var key = STATUS_KEY[p] || '';
+    var kids = [
+      h('span', { class: 'gb' }, s.g),
+      s.memo ? h('span', { class: 'memo-dot' }, '📝') : null,
+      h('span', { class: 'no corner' }, no),
+      nameSpan(s.name),
+      h('span', { class: 'sb' }, s.sid)
+    ];
+    if (p && p !== '출석') kids.push(h('span', { class: 'stl st-' + key }, p));
+    return {
+      cls: 'taken clickable g' + s.g + (key ? ' st-' + key : '') + (matches(s) ? ' hit' : ''),
+      title: no + '번 · ' + s.sid + ' ' + s.name + ' (' + s.g + '학년 ' + s.c + '반 ' + s.n + '번)' +
+        '\n1교시: ' + (s.p1 || '출석') + ' · 2교시: ' + (s.p2 || '출석') + (s.memo ? '\n메모: ' + s.memo : ''),
+      kids: kids,
+      onclick: function () { seatClick(s); }
+    };
+  });
+}
+
+function seatClick(s) {
+  if (T.mode === 'detail') { openDetail(s); return; }
+  var cur = pOf(s);
+  var next = cur === T.mode ? '' : T.mode;
+  var patch = {};
+  patch['p' + T.period] = next;
+  applyPatch(s, patch, s.name + ' ' + T.period + '교시 → ' + (next || '표시 없음(출석)'));
+}
+
+/** 화면을 먼저 바꾸고 서버에 보낸다. 실패하면 서버 값으로 다시 그린다 */
+function applyPatch(s, patch, okMsg) {
+  var undo = {};
+  Object.keys(patch).forEach(function (k) {
+    if (k === 'clearSeat') { undo.seat = s.seat; s.seat = 0; } else { undo[k] = s[k]; s[k] = patch[k]; }
+  });
+  renderMap(); renderMiss();
+  return tCall('apiTUpdate', [T.date, s.id, patch]).then(function (r) {
+    if (!r.ok) {
+      Object.keys(undo).forEach(function (k) { s[k] = undo[k]; });
+      renderMap(); renderMiss();
+      if (r.msg) modal('저장하지 못했습니다', h('p', null, r.msg));
+      return r;
+    }
+    if (okMsg) toast(okMsg);
+    T.ver = '';
+    return r;
+  });
+}
+
+function statusRow(label, s, key) {
+  var row = h('div', { class: 'row' }, h('b', null, label));
+  function draw() {
+    fill(row, [h('b', null, label)].concat(BOOT_DATA.statuses.map(function (st) {
+      return h('button', { class: 'btn small' + (s._draft[key] === st ? ' on' : ''), type: 'button',
+        onclick: function () { s._draft[key] = s._draft[key] === st ? '' : st; draw(); } }, st);
+    })).concat([h('span', { class: 'note' }, s._draft[key] ? '' : (s.seat ? '(표시 없음 = 출석으로 봄)' : '(표시 없음)'))]));
+  }
+  draw();
+  return row;
+}
+
+function openDetail(s) {
+  s._draft = { p1: s.p1 || '', p2: s.p2 || '' };
+  var memo = h('textarea', { rows: '3', maxlength: String(BOOT_DATA.memoMax), placeholder: '예: 출석 표시했으나 자리에 없음 / 병원(사전 연락)' });
+  memo.value = s.memo || '';
+  var counter = h('div', { class: 'counter' });
+  function cnt() { counter.textContent = memo.value.length + ' / ' + BOOT_DATA.memoMax + '자'; }
+  memo.addEventListener('input', cnt); cnt();
+  var both = h('div', { class: 'row' }, h('b', null, '함께'),
+    ['결석', '사유', '자리비움'].map(function (st) {
+      return h('button', { class: 'btn small', type: 'button', onclick: function () { s._draft.p1 = st; s._draft.p2 = st; redraw(); } }, '1·2교시 ' + st);
+    }));
+  var rowsBox = h('div');
+  function redraw() { fill(rowsBox, [statusRow('1교시', s, 'p1'), statusRow('2교시', s, 'p2')]); }
+  redraw();
+  var dayIdx = BOOT_DATA.days.indexOf(T.board ? T.board.dayName : '');
+  var body = h('div', null,
+    h('p', { class: 'note', style: 'margin-top:0' },
+      s.g + '학년 ' + s.c + '반 ' + s.n + '번 · 신청 요일 ' + (BOOT_DATA.days.filter(function (d, i) { return s.d[i]; }).join('·') || '없음') +
+      (dayIdx >= 0 && !s.d[dayIdx] ? ' (오늘은 신청한 요일이 아님)' : '') +
+      (s.seat ? ' · 자리 고른 때 ' + (s.at || '').slice(11, 16) + ' · 바꾼 횟수 ' + (s.ch || 0) + '번' : ' · 오늘 자리를 고르지 않음') +
+      ' · PIN ' + (s.pin ? '정함' : '아직 안 정함')),
+    rowsBox, both,
+    h('div', { class: 'row' }, h('b', null, '메모')),
+    memo, counter,
+    h('div', { class: 'row' }, MEMO_CHIPS.map(function (c) {
+      return h('button', { class: 'btn small', type: 'button', onclick: function () {
+        memo.value = (memo.value ? memo.value + ' / ' : '') + c;
+        memo.value = memo.value.slice(0, BOOT_DATA.memoMax); cnt();
+      } }, c);
+    })));
+  var buttons = [
+    { label: '🔑 PIN 초기화', cls: 'danger', onclick: function () { resetPin(s); return false; } }
+  ];
+  if (s.seat) buttons.push({ label: '자리 빼기', cls: 'danger', onclick: function () {
+    ask('자리 빼기', s.seat + '번에서 ' + s.name + ' 학생을 뺄까요? 학생이 다시 자리를 고를 수 있습니다.', '빼기').then(function (y) {
+      if (y) applyPatch(s, { clearSeat: true }, s.name + ' 학생을 자리에서 뺐습니다.');
+    });
+  } });
+  buttons.push({ label: '취소' });
+  buttons.push({ label: '저장', cls: 'primary', onclick: function () {
+    var patch = {};
+    if (s._draft.p1 !== (s.p1 || '')) patch.p1 = s._draft.p1;
+    if (s._draft.p2 !== (s.p2 || '')) patch.p2 = s._draft.p2;
+    var m = memo.value.trim();
+    if (m !== (s.memo || '')) patch.memo = m;
+    if (!Object.keys(patch).length) return true;
+    applyPatch(s, patch, s.name + ' 학생 기록을 저장했습니다.');
+    return true;
+  } });
+  modal((s.seat ? s.seat + '번 · ' : '') + s.sid + ' ' + s.name, body, buttons);
+}
+
+function resetPin(s) {
+  ask('PIN 초기화', s.sid + ' ' + s.name + ' 학생의 PIN 을 지울까요? 학생이 다음에 들어올 때 새 PIN 을 정합니다. ' +
+    '지금 들어와 있는 화면은 닫힙니다.', '초기화').then(function (y) {
+    if (!y) return;
+    tCall('apiTResetPin', [s.id]).then(function (r) {
+      if (r.ok) { toast(r.msg, 3500); s.pin = false; loadRoster(); } else if (r.msg) modal('초기화하지 못했습니다', h('p', null, r.msg));
+    });
+  });
+}
+
+function renderMiss() {
+  var box = $('missList');
+  if (!box) return;
+  var list = (T.board ? T.board.list : []).filter(function (s) { return s.applied && !s.seat; })
+    .sort(function (a, b) { return a.sid < b.sid ? -1 : 1; });
+  $('missCnt').textContent = list.length + '명';
+  if (!list.length) { fill(box, h('p', { class: 'note' }, '모두 자리를 골랐습니다.')); return; }
+  fill(box, h('table', { class: 'list' },
+    h('thead', null, h('tr', null, h('th', null, '학번'), h('th', null, '이름'), h('th', null, '1교시'), h('th', null, '2교시'), h('th', null, ''))),
+    h('tbody', null, list.map(function (s) {
+      return h('tr', null,
+        h('td', null, h('span', { class: 'tag g' + s.g }, s.g + '학년'), ' ', s.sid),
+        h('td', null, s.name, s.memo ? h('div', { class: 'note' }, '📝 ' + s.memo) : null),
+        h('td', null, s.p1 || '-'), h('td', null, s.p2 || '-'),
+        h('td', null,
+          h('button', { class: 'btn small', type: 'button', onclick: function () { applyPatch(s, { p1: '결석', p2: '결석' }, s.name + ' 1·2교시 결석'); } }, '결석'),
+          ' ',
+          h('button', { class: 'btn small', type: 'button', onclick: function () { openDetail(s); } }, '자세히')));
+    }))));
+}
+
+function renderFind() {
+  var box = $('findList');
+  if (!box) return;
+  if (!T.search) { fill(box, h('p', { class: 'note' }, '찾을 이름이나 학번을 적어 주세요.')); return; }
+  if (!T.roster) { fill(box, h('p', { class: 'note' }, '명단을 불러오는 중…')); return; }
+  var today = {};
+  (T.board ? T.board.list : []).forEach(function (s) { today[s.id] = s; });
+  var list = T.roster.filter(matches).slice(0, 12);
+  if (!list.length) { fill(box, h('p', { class: 'note' }, '찾는 학생이 명단에 없습니다.')); return; }
+  fill(box, h('table', { class: 'list' },
+    h('tbody', null, list.map(function (s) {
+      var t = today[s.id];
+      return h('tr', null,
+        h('td', null, h('span', { class: 'tag g' + s.g }, s.g + '학년'), ' ', s.sid, ' ', h('b', null, s.name)),
+        h('td', null, BOOT_DATA.days.filter(function (d, i) { return s.d[i]; }).join('·')),
+        h('td', null, t && t.seat ? t.seat + '번' : '자리 없음'),
+        h('td', null, h('span', { class: 'tag ' + (s.pin ? 'ok' : 'warn') }, s.pin ? 'PIN 있음' : 'PIN 없음')),
+        h('td', null,
+          h('button', { class: 'btn small danger', type: 'button', onclick: function () { resetPin(s); } }, 'PIN 초기화'), ' ',
+          h('button', { class: 'btn small', type: 'button', onclick: function () {
+            var row = t || Object.assign({ applied: false, seat: 0, p1: '', p2: '', memo: '', ch: 0, at: '' }, s);
+            if (!t && T.board) { T.board.list.push(row); }
+            openDetail(row);
+          } }, '이날 기록')));
+    }))));
+}
+
+/* ═════════ 📋 출석부 ═════════ */
+function buildRoll() {
+  if (!T.rollDate) T.rollDate = T.date || todayLocal();
+  var date = h('input', { type: 'date', value: T.rollDate, onchange: function () { if (date.value) { T.rollDate = date.value; loadRoll(); } } });
+  function shift(n) {
+    var p = T.rollDate.split('-');
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
+    T.rollDate = d.toISOString().slice(0, 10);
+    date.value = T.rollDate;
+    loadRoll();
+  }
+  fill($('pane'), [
+    h('div', { class: 'card noprint' },
+      h('div', { class: 'rollhead' },
+        h('span', { class: 'seg' }, [1, 2].map(function (g) {
+          return h('button', { class: 'btn' + (T.rollGrade === g ? ' on' : ''), type: 'button',
+            onclick: function () { T.rollGrade = g; store('sc12-rg', String(g)); buildRoll(); } }, g + '학년');
+        })),
+        h('button', { class: 'btn', type: 'button', onclick: function () { shift(-7); } }, '◀ 지난주'),
+        date,
+        h('button', { class: 'btn', type: 'button', onclick: function () { shift(7); } }, '다음 주 ▶'),
+        h('button', { class: 'btn', type: 'button', onclick: function () { loadRoll(); } }, '↻ 새로 불러오기'),
+        h('button', { class: 'btn primary', type: 'button', onclick: function () { window.print(); } }, '🖨 인쇄')),
+      h('div', { class: 'legend' },
+        h('span', null, '1 = 신청(아직 시작 전)'), h('span', null, '○ = 출석 (자리를 골랐고 다른 표시가 없음)'),
+        h('span', null, '지 = 지각 · 조 = 조퇴 · 비 = 자리비움'), h('span', null, '✕ = 결석 · 사 = 사유'),
+        h('span', null, '미 = 신청했는데 자리도 출결 표시도 없음'), h('span', null, '◤ = 메모 있음(칸에 마우스를 올리면 보임)'))),
+    h('div', { class: 'card', id: 'rollBox' }, h('p', { class: 'note' }, '불러오는 중…')),
+    h('div', { class: 'card noprint', id: 'rollSum' })
+  ]);
+  loadRoll();
+}
+
+function schoolTerm(date) {
+  var y = Number(date.slice(0, 4)), m = Number(date.slice(5, 7));
+  return (m < 3 ? y - 1 : y) + '학년도 ' + (m >= 3 && m < 8 ? '1학기' : '2학기');
+}
+
+function loadRoll() {
+  return tCall('apiTWeek', [T.rollGrade, T.rollDate]).then(function (r) {
+    if (!r.ok) { if (r.msg) fill($('rollBox'), h('div', { class: 'msg' }, r.msg)); return; }
+    renderRoll(r);
+  });
+}
+
+/** 한 칸에 무엇을 적을까 — 출석부 종이에 「1」(신청) · 「○」(출석) 을 적던 방식을 그대로 따른다 */
+function rollCell(w, s, i, k) {
+  var date = w.dates[i];
+  var rec = w.recs[date][s.id];
+  var applied = s.d[i];
+  var st = rec ? rec['p' + k] : '';
+  var past = date < w.today || (date === w.today && w.hm > BOOT_DATA.to);
+  var c = { text: '', cls: '' };
+  if (st) { c.text = STATUS_MARK[st]; c.cls = { '출석': 'o', '결석': 'x', '사유': 's', '지각': 'w', '조퇴': 'w', '자리비움': 'w' }[st]; }
+  else if (rec && rec.seat) { c.text = '○'; c.cls = 'o'; }
+  else if (applied) { if (past) { c.text = '미'; c.cls = 'miss'; } else { c.text = '1'; c.cls = 'ap'; } }
+  if (date === w.today) c.cls += ' today';
+  if (rec && rec.memo) { c.cls += ' has-memo'; c.title = rec.memo; }
+  return c;
+}
+
+function renderRoll(w) {
+  var DAYN = BOOT_DATA.days;
+  var head1 = h('tr', null, h('th', { rowspan: '4' }, '연번'), h('th', { rowspan: '4' }, '반'), h('th', { rowspan: '4' }, '번호'), h('th', { rowspan: '4' }, '성명'),
+    DAYN.map(function (d) { return h('th', { colspan: '2' }, d); }));
+  var head2 = h('tr', null, w.dates.map(function (d) { return h('th', { colspan: '2' }, dateLabel(d)); }));
+  var head3 = h('tr', null, w.dates.map(function (d) { return h('th', { colspan: '2', style: 'font-weight:500' }, '감독 교사: ' + (w.sups[d] || []).join(', ')); }));
+  var head4 = h('tr', null, w.dates.map(function () { return [h('th', null, '1교시'), h('th', null, '2교시')]; }));
+  var body = w.students.map(function (s, idx) {
+    var cells = [];
+    for (var i = 0; i < 4; i++) {
+      for (var k = 1; k <= 2; k++) {
+        var c = rollCell(w, s, i, k);
+        cells.push(h('td', { class: c.cls, title: c.title || null }, c.text));
+      }
+    }
+    return h('tr', null, h('td', null, idx + 1), h('td', null, s.c), h('td', null, s.n), h('td', { class: 'nm' }, s.name), cells);
+  });
+  if (!w.students.length) body = [h('tr', null, h('td', { colspan: '12', class: 'note' }, w.grade + '학년 명단이 비어 있습니다. 담임교사 탭에서 학생을 넣어 주세요.'))];
+  fill($('rollBox'), [
+    h('div', { class: 'print-title' }, schoolTerm(w.dates[0]) + ' ' + w.grade + '학년 야간 자율학습 출석부'),
+    h('h3', { class: 'noprint', style: 'margin:0 0 8px;text-align:center' },
+      schoolTerm(w.dates[0]) + ' ' + w.grade + '학년 야간 자율학습 출석부 (' + dateLabel(w.dates[0]) + ' ~ ' + dateLabel(w.dates[3]) + ')'),
+    h('div', { style: 'overflow-x:auto' }, h('table', { class: 'roll' }, h('thead', null, head1, head2, head3, head4), h('tbody', null, body)))
+  ]);
+  /* 날마다 요약 · 결석자 · 메모 */
+  var sums = w.dates.map(function (d, i) {
+    var applied = 0, ok = 0, absent = [], memos = [];
+    w.students.forEach(function (s) {
+      var rec = w.recs[d][s.id];
+      if (s.d[i]) applied++;
+      var a = rollCell(w, s, i, 1), b = rollCell(w, s, i, 2);
+      if (a.text === '○' && b.text === '○') ok++;
+      var bad = [a.text, b.text].filter(function (x) { return x && x !== '○' && x !== '1'; });
+      if (bad.length) absent.push(s.c + '반 ' + s.name + '(' + bad.join('/') + ')');
+      if (rec && rec.memo) memos.push(s.c + '반 ' + s.name + ': ' + rec.memo);
+    });
+    return h('div', { style: 'margin-bottom:10px' },
+      h('b', null, dateLabel(d) + '(' + DAYN[i] + ')'), ' 신청 ' + applied + '명 · 1·2교시 모두 출석 ' + ok + '명',
+      absent.length ? h('div', null, h('span', { class: 'tag bad' }, '결석·미입실 등'), ' ', absent.join(', ')) : null,
+      memos.length ? h('div', { class: 'note' }, '📝 ' + memos.join(' / ')) : null);
+  });
+  fill($('rollSum'), [h('h3', { style: 'margin-top:0' }, '이번 주 요약'), sums]);
+}
+
+/* ═════════ 🧑‍🏫 담임교사 ═════════ */
+function classOptions() {
+  var out = [];
+  [1, 2].forEach(function (g) {
+    for (var c = 1; c <= BOOT_DATA.classMax; c++) out.push({ v: g + '-' + c, label: g + '학년 ' + c + '반' });
+  });
+  return out;
+}
+
+function buildClass() {
+  var sel = h('select', { onchange: function () { T.cls = sel.value; store('sc12-cls', sel.value); renderClass(); } },
+    classOptions().map(function (o) { return h('option', { value: o.v }, o.label); }));
+  sel.value = T.cls;
+  var ta = h('textarea', { rows: '6', maxlength: '6000', placeholder: '출석부 표를 그대로 복사해 붙여 넣거나, 한 줄에 한 명씩 「번호 이름 요일」 로 적으세요.\n예)  12 박수연 화 목\n     14 성규범 월 화 목 금' });
+  fill($('pane'), [
+    h('div', { class: 'card' },
+      h('div', { class: 'toolbar', style: 'justify-content:flex-start' },
+        h('b', null, '우리 반 '), sel,
+        h('button', { class: 'btn', type: 'button', onclick: function () { loadRoster(); } }, '↻ 새로 불러오기')),
+      h('div', { class: 'msg info', style: 'margin-top:10px' },
+        '야자를 신청하는 학생은 월 · 화 · 목 · 금 가운데 이틀 이상 골라야 하고, 참여하는 날은 1 · 2교시 모두 참여합니다. ',
+        '학번은 학년 · 반 · 번호로 저절로 정해집니다 (예: 1학년 2반 5번 → 10205).')),
+    h('div', { class: 'card', id: 'classBox' }, h('p', { class: 'note' }, '명단을 불러오는 중…')),
+    h('details', { class: 'card' },
+      h('summary', { style: 'cursor:pointer;font-weight:700' }, '📋 여러 명 한꺼번에 붙여넣기'),
+      h('p', { class: 'note' }, '출석부(한글) 표의 줄을 그대로 복사해도 됩니다 — 「연번 반 번호 성명」 뒤의 1 표시로 신청 요일을 읽습니다. 다른 반 줄은 넣지 않습니다.'),
+      ta,
+      h('div', { class: 'toolbar', style: 'justify-content:flex-start;margin-top:8px' },
+        h('button', { class: 'btn', type: 'button', onclick: function () { bulk(ta, false); } }, '미리보기'),
+        h('button', { class: 'btn primary', type: 'button', onclick: function () { bulk(ta, true); } }, '이대로 넣기')),
+      h('div', { id: 'bulkBox' }))
+  ]);
+  renderClass();
+}
+
+function curClass() { var p = T.cls.split('-'); return { g: Number(p[0]), c: Number(p[1]) }; }
+
+function renderClass() {
+  var box = $('classBox');
+  if (!box) return;
+  if (!T.roster) { fill(box, h('p', { class: 'note' }, '명단을 불러오는 중…')); return; }
+  var cc = curClass();
+  var list = T.roster.filter(function (s) { return s.g === cc.g && s.c === cc.c; }).sort(function (a, b) { return a.n - b.n; });
+  var rows = list.map(function (s) { return classRow(s, cc); });
+  rows.push(classRow(null, cc));
+  fill(box, [
+    h('h3', { style: 'margin-top:0' }, cc.g + '학년 ' + cc.c + '반 야자 신청 명단 ', h('span', { class: 'tag' }, list.length + '명')),
+    h('div', { style: 'overflow-x:auto' }, h('table', { class: 'list' },
+      h('thead', null, h('tr', null, h('th', { style: 'width:80px' }, '번호'), h('th', { style: 'width:130px' }, '이름'),
+        BOOT_DATA.days.map(function (d) { return h('th', { style: 'width:46px' }, d); }),
+        h('th', null, '학번'), h('th', null, 'PIN'), h('th', null, ''))),
+      h('tbody', null, rows)))
+  ]);
+}
+
+function classRow(s, cc) {
+  var num = h('input', { type: 'number', min: '1', max: String(BOOT_DATA.numMax), value: s ? s.n : '' });
+  var nm = h('input', { type: 'text', maxlength: '5', value: s ? s.name : '', placeholder: s ? '' : '새 학생 이름' });
+  var days = BOOT_DATA.days.map(function (d, i) { return h('input', { type: 'checkbox', checked: s ? s.d[i] : false, 'aria-label': d + '요일' }); });
+  var sidCell = h('td', null, s ? s.sid : '-');
+  function upd() {
+    var n = Number(num.value);
+    sidCell.textContent = n >= 1 && n <= BOOT_DATA.numMax ? String(cc.g) + (cc.c < 10 ? '0' : '') + cc.c + (n < 10 ? '0' : '') + n : '-';
+  }
+  num.addEventListener('input', upd);
+  function save(btn) {
+    var d = days.map(function (x) { return x.checked; });
+    var n = Number(num.value), name = nm.value.trim();
+    if (!(n >= 1 && n <= BOOT_DATA.numMax)) { toast('번호를 1~' + BOOT_DATA.numMax + ' 로 적어 주세요.'); return; }
+    if (!/^[가-힣]{2,5}$/.test(name)) { toast('이름은 한글 2~5자로 적어 주세요.'); return; }
+    if (d.filter(Boolean).length < BOOT_DATA.minDays) { toast('신청 요일을 이틀 이상 골라 주세요.', 3500); return; }
+    btn.disabled = true;
+    tCall('apiTSaveStudent', [{ id: s ? s.id : '', g: cc.g, c: cc.c, n: n, name: name, d: d }]).then(function (r) {
+      btn.disabled = false;
+      if (!r.ok) { if (r.msg) modal('저장하지 못했습니다', h('p', null, r.msg)); return; }
+      toast((s ? '고쳤습니다: ' : '넣었습니다: ') + r.sid + ' ' + name);
+      T.ver = '';
+      loadRoster();
+    });
+  }
+  var actions = s
+    ? [h('button', { class: 'btn small primary', type: 'button', onclick: function (e) { save(e.currentTarget); } }, '저장'), ' ',
+       h('button', { class: 'btn small danger', type: 'button', onclick: function () { delStudent(s); } }, '삭제')]
+    : [h('button', { class: 'btn small primary', type: 'button', onclick: function (e) { save(e.currentTarget); } }, '＋ 추가')];
+  return h('tr', { style: s ? null : 'background:#f8fbff' },
+    h('td', null, num), h('td', null, nm), days.map(function (x) { return h('td', null, x); }),
+    sidCell,
+    h('td', null, s ? [h('span', { class: 'tag ' + (s.pin ? 'ok' : 'warn') }, s.pin ? '정함' : '아직'), ' ',
+      s.pin ? h('button', { class: 'btn small danger', type: 'button', onclick: function () { resetPin(s); } }, '초기화') : null] : '-'),
+    h('td', null, actions));
+}
+
+function delStudent(s) {
+  ask('명단에서 지우기', s.sid + ' ' + s.name + ' 학생을 야자 명단에서 지울까요? 지난 출결 기록은 시트 「기록」 에 그대로 남습니다.', '지우기').then(function (y) {
+    if (!y) return;
+    tCall('apiTDeleteStudent', [s.id]).then(function (r) {
+      if (!r.ok) { if (r.msg) modal('지우지 못했습니다', h('p', null, r.msg)); return; }
+      toast(s.name + ' 학생을 명단에서 지웠습니다.');
+      T.ver = '';
+      loadRoster();
+    });
+  });
+}
+
+function bulk(ta, apply) {
+  var cc = curClass();
+  if (!ta.value.trim()) { toast('붙여 넣을 내용이 없습니다.'); return; }
+  var go = function () {
+    tCall('apiTBulk', [cc.g, cc.c, ta.value, apply]).then(function (r) {
+      if (!r.ok) { if (r.msg) fill($('bulkBox'), h('div', { class: 'msg' }, r.msg)); return; }
+      if (apply) {
+        fill($('bulkBox'), h('div', { class: 'msg ok' }, '넣었습니다 — 추가 ' + r.added + '명 · 고침 ' + r.updated + '명'));
+        ta.value = '';
+        T.ver = '';
+        loadRoster();
+        return;
+      }
+      fill($('bulkBox'), [
+        h('p', null, '넣을 수 있는 줄 ', h('b', null, r.good), '개 / 전체 ' + r.rows.length + '줄. 오류가 있는 줄은 넣지 않습니다.'),
+        h('table', { class: 'list' },
+          h('thead', null, h('tr', null, h('th', null, '붙여 넣은 줄'), h('th', null, '번호'), h('th', null, '이름'), h('th', null, '요일'), h('th', null, '결과'))),
+          h('tbody', null, r.rows.map(function (x) {
+            return h('tr', null, h('td', { class: 'l note' }, x.text), h('td', null, x.n || '-'), h('td', null, x.name || '-'),
+              h('td', null, BOOT_DATA.days.filter(function (d, i) { return x.d[i]; }).join('·') || '-'),
+              h('td', null, x.err ? h('span', { class: 'tag bad' }, x.err) : h('span', { class: 'tag ok' }, x.action)));
+          })))
+      ]);
+    });
+  };
+  if (apply) ask('붙여넣기', cc.g + '학년 ' + cc.c + '반 명단에 넣을까요? 이미 있는 번호는 이름 · 요일을 고칩니다.', '넣기').then(function (y) { if (y) go(); });
+  else go();
+}
+
+/* ── 시작 ── */
+if (T.token) start(); else tGate();
+</script>

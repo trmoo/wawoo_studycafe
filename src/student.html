@@ -1,0 +1,180 @@
+<script>
+/*!
+ * 학생 화면 — 로그인(학번 · 이름 · PIN) → 오늘 자리 고르기
+ * © 2026 티쳐무 · 모든 권리 보유
+ *
+ * 화면이 지키는 것은 「편하게」 일 뿐이다. 날짜 · 시간 · 신청 요일 · 자리 겹침 · 바꾸기 횟수는
+ * 모두 서버(Code.gs 의 apiPick)가 다시 검사한다.
+ */
+/* 체험판 · 미리보기는 새로 고칠 때마다 가짜 시트가 새로 깔리므로 지난 접속표를 쓰지 않는다 */
+var S = { token: BOOT_DATA.preview ? null : store('sc12-s'), name: store('sc12-sn') || '', ver: '', board: null, poll: null, busy: false };
+
+function gateLogin(msg, kind) {
+  $('app').classList.add('hidden');
+  var gate = $('gate');
+  gate.classList.remove('hidden');
+  var sid = h('input', { type: 'text', inputmode: 'numeric', maxlength: '5', autocomplete: 'off', placeholder: '예: 10105', id: 'inSid' });
+  var nm = h('input', { type: 'text', maxlength: '5', autocomplete: 'off', placeholder: '예: 홍길동', id: 'inName' });
+  var pin = h('input', { type: 'password', inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: '숫자 4자리', id: 'inPin' });
+  var box = h('div', { id: 'gmsg' });
+  var btn = h('button', { class: 'btn primary', type: 'submit', style: 'width:100%;margin-top:6px' }, '들어가기');
+  var form = h('form', { onsubmit: function (e) { e.preventDefault(); doLogin(sid, nm, pin, btn, box); } },
+    h('h2', null, '🪑 자리 고르러 들어가기'),
+    h('p', { class: 'note' }, '야자를 신청한 날 ' + BOOT_DATA.from + '~' + BOOT_DATA.to + ' 에 오늘 앉을 자리를 고릅니다.'),
+    h('label', { class: 'field' }, h('span', null, '학번 (5자리)'), sid),
+    h('label', { class: 'field' }, h('span', null, '이름'), nm),
+    h('label', { class: 'field' }, h('span', null, 'PIN (숫자 4자리)'), pin),
+    h('p', { class: 'note' }, '처음 들어오면 PIN 칸은 비워 두고 [들어가기] 를 누르세요. PIN 을 새로 정하게 됩니다.'),
+    btn, box);
+  fill(gate, form);
+  /* 학번 칸에는 숫자만 — 붙여 넣어도 숫자가 아닌 글자는 지운다 */
+  sid.addEventListener('input', function () { sid.value = sid.value.replace(/[^0-9]/g, '').slice(0, 5); });
+  pin.addEventListener('input', function () { pin.value = pin.value.replace(/[^0-9]/g, '').slice(0, 4); });
+  nm.addEventListener('input', function () { if (nm.value.length > 5) nm.value = nm.value.slice(0, 5); });
+  if (msg) fill(box, h('div', { class: 'msg ' + (kind || '') }, msg));
+  sid.focus();
+}
+
+function checkForm(sid, name) {
+  if (!/^[12][0-9]{4}$/.test(sid)) return '학번은 숫자 5자리로 적어 주세요. (1학년 1반 5번 → 10105)';
+  if (!/^[가-힣]{2,5}$/.test(name)) return '이름은 한글 2~5자로 적어 주세요.';
+  return '';
+}
+
+function doLogin(sidEl, nmEl, pinEl, btn, box) {
+  var sid = sidEl.value.trim(), name = nmEl.value.trim(), pin = pinEl.value.trim();
+  var bad = checkForm(sid, name);
+  if (!bad && pin && !/^[0-9]{4}$/.test(pin)) bad = 'PIN 은 숫자 4자리입니다.';
+  if (bad) { fill(box, h('div', { class: 'msg' }, bad)); return; }
+  btn.disabled = true;
+  call('apiLogin', [sid, name, pin]).then(function (r) {
+    btn.disabled = false;
+    if (r.ok) { enter(r); return; }
+    if (r.setup) { gateSetPin(sid, name, r.msg); return; }
+    fill(box, h('div', { class: 'msg' }, r.msg));
+  });
+}
+
+function gateSetPin(sid, name, msg) {
+  var p1 = h('input', { type: 'password', inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: '숫자 4자리' });
+  var p2 = h('input', { type: 'password', inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: '한 번 더' });
+  [p1, p2].forEach(function (p) { p.addEventListener('input', function () { p.value = p.value.replace(/[^0-9]/g, '').slice(0, 4); }); });
+  var box = h('div');
+  var btn = h('button', { class: 'btn primary', type: 'submit', style: 'width:100%;margin-top:6px' }, 'PIN 정하고 들어가기');
+  var form = h('form', {
+    onsubmit: function (e) {
+      e.preventDefault();
+      if (!/^[0-9]{4}$/.test(p1.value)) { fill(box, h('div', { class: 'msg' }, 'PIN 은 숫자 4자리로 정해 주세요.')); return; }
+      if (p1.value !== p2.value) { fill(box, h('div', { class: 'msg' }, '두 번 넣은 PIN 이 다릅니다.')); return; }
+      btn.disabled = true;
+      call('apiSetPin', [sid, name, p1.value, p2.value]).then(function (r) {
+        btn.disabled = false;
+        if (r.ok) { enter(r); toast('PIN 을 정했습니다. 다음부터는 이 PIN 으로 들어옵니다.'); return; }
+        fill(box, h('div', { class: 'msg' }, r.msg));
+      });
+    }
+  },
+    h('h2', null, '🔑 PIN 정하기'),
+    h('div', { class: 'msg info' }, msg),
+    h('p', { class: 'note' }, name + ' (' + sid + ') 학생의 PIN 을 정합니다. 친구에게 알려 주지 마세요. 0000 · 1234 처럼 쉬운 숫자는 쓸 수 없습니다. ' +
+      '잊으면 감독 선생님이나 담임 선생님께 초기화를 부탁하면 됩니다.'),
+    h('label', { class: 'field' }, h('span', null, '새 PIN'), p1),
+    h('label', { class: 'field' }, h('span', null, '새 PIN 확인'), p2),
+    btn, box,
+    h('p', { style: 'text-align:center;margin-top:10px' }, h('button', { class: 'btn small', type: 'button', onclick: function () { gateLogin(); } }, '← 처음으로')));
+  fill($('gate'), form);
+  p1.focus();
+}
+
+function enter(r) {
+  S.token = r.token; S.name = r.name || ''; S.ver = '';
+  store('sc12-s', r.token); store('sc12-sn', S.name);
+  $('gate').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  zoomBar($('mapbox'));
+  load(false);
+  if (S.poll) S.poll.stop();
+  S.poll = poller(function () { return load(true); }, 20000);
+}
+
+function logout(msg) {
+  if (S.poll) S.poll.stop();
+  if (S.token) call('apiLogout', [S.token], { quiet: true });
+  S.token = null; S.board = null; S.ver = '';
+  store('sc12-s', null); store('sc12-sn', null);
+  gateLogin(msg || '', msg ? 'info' : '');
+}
+
+function load(quiet) {
+  if (!S.token) return Promise.resolve();
+  return call('apiBoard', [S.token, quiet ? S.ver : ''], { quiet: quiet }).then(function (r) {
+    if (!r.ok) {
+      if (r.relogin) { logout('접속이 끝났거나 PIN 이 초기화되었습니다. 다시 들어와 주세요.'); return; }
+      if (!quiet) toast(r.msg, 4000);
+      return;
+    }
+    if (r.same && S.board) {
+      S.board.open = r.open; S.board.why = r.why; S.board.mine = r.mine; S.board.changesLeft = r.changesLeft; S.board.hm = r.hm;
+    } else {
+      S.board = r;
+    }
+    S.ver = r.ver;
+    $('updated').textContent = nowText();
+    render();
+  });
+}
+
+function render() {
+  var b = S.board;
+  if (!b) return;
+  var taken = Object.keys(b.seats || {}).length;
+  $('cntTaken').textContent = taken;
+  $('cntFree').textContent = BOOT_DATA.seatMax - taken;
+  $('todayPill').textContent = dateLabel(b.date) + ' (' + b.dayName + ') · 자리 고르기 ' + BOOT_DATA.from + '~' + BOOT_DATA.to;
+  fill($('mineText'), b.mine ? [S.name + ' — 오늘 내 자리: ', h('b', null, '★ ' + b.mine + '번')] : S.name + ' — 아직 오늘 자리를 고르지 않았습니다');
+  $('whyText').textContent = b.open
+    ? (b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 오늘 바꿀 수 있는 횟수: ' + Math.max(0, b.changesLeft) + '번' : '빈자리를 눌러 오늘 앉을 자리를 고르세요.')
+    : b.why;
+  drawMap($('mapbox'), function (no) {
+    var s = b.seats ? b.seats[no] : null;
+    if (s) {
+      return {
+        cls: 'taken' + (s.me ? ' mine' : ''),
+        title: s.me ? no + '번 · 내 자리' : no + '번 · 다른 학생',
+        kids: [h('span', { class: 'no' }, no), nameSpan(s.n)]
+      };
+    }
+    return {
+      cls: 'empty' + (b.open ? ' pickable' : ''),
+      title: no + '번 · 빈자리',
+      onclick: b.open ? function () { pick(no); } : null
+    };
+  });
+  /* 휴대폰 「크게 보기」 — 처음 한 번, 내 자리가 화면 가운데 오게 */
+  if (b.mine && S.scrolledTo !== b.mine) { scrollToSeat($('mapbox'), b.mine); S.scrolledTo = b.mine; }
+}
+
+function pick(no) {
+  var b = S.board;
+  if (!b || S.busy) return;
+  var text = b.mine
+    ? b.mine + '번에서 ' + no + '번으로 자리를 바꿀까요? 바꾸면 오늘 남은 바꾸기 횟수가 ' + Math.max(0, b.changesLeft - 1) + '번이 됩니다.'
+    : no + '번 자리로 정할까요?';
+  ask(no + '번 자리', text, '네, 이 자리로').then(function (yes) {
+    if (!yes) return;
+    S.busy = true;
+    call('apiPick', [S.token, no]).then(function (r) {
+      S.busy = false;
+      if (r.ok) { toast('★ ' + r.seat + '번 자리로 정했습니다.'); S.ver = ''; load(false); return; }
+      if (r.relogin) { logout('다시 들어와 주세요.'); return; }
+      modal('자리를 정하지 못했습니다', h('p', null, r.msg));
+      if (r.refresh) { S.ver = ''; load(false); }
+    });
+  });
+}
+
+$('btnRefresh').addEventListener('click', function () { S.ver = ''; load(false); });
+$('btnLogout').addEventListener('click', function () { logout(); });
+
+if (S.token) enter({ token: S.token, name: S.name }); else gateLogin();
+</script>

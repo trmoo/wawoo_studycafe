@@ -1,0 +1,16 @@
+{
+  "name": "wawoo-studycafe",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "1·2학년 자습실 좌석배치도 — 야간 자율학습 자리 고르기 · 출결 · 출석부 (Google Apps Script). 티쳐무",
+  "author": "티쳐무 (trmoo)",
+  "scripts": {
+    "test": "node test/run.mjs",
+    "check": "node tools/check.js",
+    "preview": "node tools/preview.js",
+    "pack": "node tools/pack.js",
+    "build": "npm run check && npm test && npm run preview && npm run site && npm run pack",
+    "site": "node tools/site.js"
+  }
+}
