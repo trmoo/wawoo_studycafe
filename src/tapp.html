@@ -3,16 +3,14 @@
  * 교사 화면 — 🪑 야자감독 · 📋 출석부 · 🧑‍🏫 담임교사
  * © 2026 티쳐무 · 모든 권리 보유
  */
-var STATUS_KEY = { '출석': 'present', '지각': 'late', '조퇴': 'early', '자리비움': 'away', '결석': 'absent', '사유': 'excused' };
-var STATUS_MARK = { '출석': '○', '지각': '지', '조퇴': '조', '자리비움': '비', '결석': '✕', '사유': '사' };
+/* 출결은 셋뿐 — 출석 · 결석 · 사유 (지각 · 조퇴 · 자리비움 같은 일은 「사유」 + 메모로 적는다) */
+var STATUS_KEY = { '출석': 'present', '결석': 'absent', '사유': 'excused' };
+var STATUS_MARK = { '출석': '○', '결석': '✕', '사유': '사' };
 var MODES = [
   { key: 'detail', label: '📝 자세히' },
-  { key: '자리비움', label: '자리비움', cls: 'm-away' },
+  { key: '출석', label: '✔ 출석', cls: 'm-present' },
   { key: '결석', label: '결석', cls: 'm-absent' },
-  { key: '지각', label: '지각', cls: 'm-late' },
-  { key: '조퇴', label: '조퇴', cls: 'm-early' },
-  { key: '사유', label: '사유', cls: 'm-excused' },
-  { key: '출석', label: '✔ 출석' }
+  { key: '사유', label: '사유', cls: 'm-excused' }
 ];
 var MEMO_CHIPS = ['출석 표시했으나 자리에 없음', '병원(사전 연락)', '학교 행사', '보호자 연락 후 조기 귀가', '자리 옮김'];
 
@@ -146,7 +144,7 @@ function buildSup() {
       h('div', { class: 'legend' },
         h('span', null, h('i', { class: 'l1' }), '1학년'),
         h('span', null, h('i', { class: 'l2' }), '2학년'),
-        h('span', null, '줄무늬 = 자리비움·결석·사유'),
+        h('span', null, '줄무늬 = 결석 · 사유'),
         h('span', null, '📝 = 메모 있음'),
         h('span', { id: 'supNames' }))),
     h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🚪 신청했지만 자리를 안 고른 학생 ', h('span', { id: 'missCnt', class: 'tag bad' }, '0')),
@@ -170,7 +168,7 @@ function renderControls() {
   }));
   $('hint').textContent = T.mode === 'detail'
     ? T.period + '교시 · 좌석을 누르면 출결 · 메모 · PIN 초기화 창이 열립니다.'
-    : T.period + '교시 · 좌석을 누르면 「' + T.mode + '」 로 표시하고, 다시 누르면 풉니다.';
+    : T.period + '교시 · 좌석을 누르면 「' + T.mode + '」 표시를 하고, 다시 누르면 풉니다.';
 }
 
 function loadBoard(quiet) {
@@ -203,10 +201,14 @@ function renderMap() {
   var taken = Object.keys(seats).length;
   $('cTaken').textContent = taken;
   $('cFree').textContent = BOOT_DATA.seatMax - taken;
-  var cnt = { '자리비움': 0, '결석': 0, '지각': 0, '조퇴': 0, '사유': 0 };
-  (b ? b.list : []).forEach(function (s) { var p = pOf(s); if (cnt[p] !== undefined) cnt[p]++; });
+  /* 출석 = 「출석」 표시 + 자리를 골랐고 아무 표시가 없는 학생 */
+  var cnt = { '출석': 0, '결석': 0, '사유': 0 };
+  (b ? b.list : []).forEach(function (s) {
+    var p = pOf(s) || (s.seat ? '출석' : '');
+    if (cnt[p] !== undefined) cnt[p]++;
+  });
   fill($('counts'), Object.keys(cnt).map(function (k) {
-    return h('span', null, k + ' ', h('b', { style: 'color:' + ({ '자리비움': '#dc2626', '결석': '#374151', '지각': '#d97706', '조퇴': '#7c3aed', '사유': '#0f766e' })[k] }, cnt[k]));
+    return h('span', null, k + ' ', h('b', { style: 'color:' + ({ '출석': '#15803d', '결석': '#374151', '사유': '#0f766e' })[k] }, cnt[k]));
   }));
   $('supNames').textContent = b ? dateLabel(b.date) + '(' + b.dayName + ') 감독 교사: ' + (b.sups && b.sups.length ? b.sups.join(', ') : '아직 없음') : '';
   drawMap($('mapbox'), function (no) {
@@ -281,7 +283,7 @@ function openDetail(s) {
   function cnt() { counter.textContent = memo.value.length + ' / ' + BOOT_DATA.memoMax + '자'; }
   memo.addEventListener('input', cnt); cnt();
   var both = h('div', { class: 'row' }, h('b', null, '함께'),
-    ['결석', '사유', '자리비움'].map(function (st) {
+    BOOT_DATA.statuses.map(function (st) {
       return h('button', { class: 'btn small', type: 'button', onclick: function () { s._draft.p1 = st; s._draft.p2 = st; redraw(); } }, '1·2교시 ' + st);
     }));
   var rowsBox = h('div');
@@ -481,7 +483,7 @@ function buildRoll() {
         h('button', { class: 'btn primary', type: 'button', onclick: function () { window.print(); } }, '🖨 인쇄')),
       h('div', { class: 'legend' },
         h('span', null, '1 = 신청(아직 시작 전)'), h('span', null, '○ = 출석 (자리를 골랐고 다른 표시가 없음)'),
-        h('span', null, '지 = 지각 · 조 = 조퇴 · 비 = 자리비움'), h('span', null, '✕ = 결석 · 사 = 사유'),
+        h('span', null, '✕ = 결석 · 사 = 사유'),
         h('span', null, '미 = 신청했는데 자리도 출결 표시도 없음'), h('span', null, '◤ = 메모 있음(칸에 마우스를 올리면 보임)'))),
     h('div', { class: 'card', id: 'rollBox' }, h('p', { class: 'note' }, '불러오는 중…')),
     h('div', { class: 'card noprint', id: 'rollSum' })
@@ -509,7 +511,7 @@ function rollCell(w, s, i, k) {
   var st = rec ? rec['p' + k] : '';
   var past = date < w.today || (date === w.today && w.hm > BOOT_DATA.to);
   var c = { text: '', cls: '' };
-  if (st) { c.text = STATUS_MARK[st]; c.cls = { '출석': 'o', '결석': 'x', '사유': 's', '지각': 'w', '조퇴': 'w', '자리비움': 'w' }[st]; }
+  if (st) { c.text = STATUS_MARK[st]; c.cls = { '출석': 'o', '결석': 'x', '사유': 's' }[st]; }
   else if (rec && rec.seat) { c.text = '○'; c.cls = 'o'; }
   else if (applied) { if (past) { c.text = '미'; c.cls = 'miss'; } else { c.text = '1'; c.cls = 'ap'; } }
   if (date === w.today) c.cls += ' today';
@@ -555,7 +557,7 @@ function renderRoll(w) {
     });
     return h('div', { style: 'margin-bottom:10px' },
       h('b', null, dateLabel(d) + '(' + DAYN[i] + ')'), ' 신청 ' + applied + '명 · 1·2교시 모두 출석 ' + ok + '명',
-      absent.length ? h('div', null, h('span', { class: 'tag bad' }, '결석·미입실 등'), ' ', absent.join(', ')) : null,
+      absent.length ? h('div', null, h('span', { class: 'tag bad' }, '결석 · 사유 · 미입실'), ' ', absent.join(', ')) : null,
       memos.length ? h('div', { class: 'note' }, '📝 ' + memos.join(' / ')) : null);
   });
   fill($('rollSum'), [h('h3', { style: 'margin-top:0' }, '이번 주 요약'), sums]);

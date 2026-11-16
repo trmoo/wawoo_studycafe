@@ -66,8 +66,10 @@
         if (x < 0.1) { shC.appendRow([date, s.id, s.sid, s.name, s.g, '', '결석', '결석', '', '', 0, date + ' 19:00:00', SUPS[di]]); return; }
         if (x < 0.14) { shC.appendRow([date, s.id, s.sid, s.name, s.g, '', '사유', '사유', x < 0.12 ? '병원(사전 연락)' : '학교 행사', '', 0, date + ' 17:00:00', SUPS[di]]); return; }
         var seat = free.splice(Math.floor(r() * free.length), 1)[0];
-        var p2 = x > 0.97 ? '조퇴' : '', p1 = x > 0.94 && x <= 0.97 ? '지각' : '';
-        shC.appendRow([date, s.id, s.sid, s.name, s.g, seat, p1, p2, p2 ? '보호자 연락 후 조기 귀가' : '', date + ' 16:5' + Math.floor(r() * 9) + ':00', 0, date + ' 19:30:00', p1 || p2 ? SUPS[di] : '학생']);
+        /* 2교시만 사유(조기 귀가) · 1교시만 결석(자리에 없음) 이 드문드문 */
+        var p2 = x > 0.97 ? '사유' : '', p1 = x > 0.94 && x <= 0.97 ? '결석' : '';
+        var memo = p2 ? '보호자 연락 후 조기 귀가' : (p1 ? '출석 표시했으나 자리에 없음' : '');
+        shC.appendRow([date, s.id, s.sid, s.name, s.g, seat, p1, p2, memo, date + ' 16:5' + Math.floor(r() * 9) + ':00', 0, date + ' 19:30:00', p1 || p2 ? SUPS[di] : '학생']);
       });
       shS.appendRow([date, SUPS[di], date + ' 18:00:00', date + ' 21:20:00']);
     });
@@ -80,8 +82,9 @@
         if (i < DEMO.length || !s.d[ti] || r() < 0.3) return;
         var seat = free2.splice(Math.floor(r() * free2.length), 1)[0];
         var y = r();
-        var p1 = y < 0.04 ? '자리비움' : (y < 0.07 ? '지각' : '');
-        shC.appendRow([today, s.id, s.sid, s.name, s.g, seat, p1, '', p1 === '자리비움' ? '출석 표시했으나 자리에 없음' : '', today + ' 16:5' + Math.floor(r() * 9) + ':00', 0, today + ' 17:30:00', p1 ? '박정진' : '학생']);
+        var p1 = y < 0.04 ? '결석' : (y < 0.06 ? '사유' : '');
+        var memo = p1 === '결석' ? '출석 표시했으나 자리에 없음' : (p1 ? '학교 행사' : '');
+        shC.appendRow([today, s.id, s.sid, s.name, s.g, seat, p1, '', memo, today + ' 16:5' + Math.floor(r() * 9) + ':00', 0, today + ' 17:30:00', p1 ? '박정진' : '학생']);
       });
       shS.appendRow([today, '박정진', today + ' 17:30:00', today + ' 17:30:00']);
     }

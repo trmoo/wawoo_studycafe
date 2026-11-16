@@ -420,13 +420,24 @@ describe('야자감독 — 출결 · 메모', () => {
   });
   test('1교시 · 2교시를 따로 기록하고 감독 교사로 남는다', () => {
     const { api, gas, tk, s } = setup();
-    ok(api.apiTUpdate(tk, '2026-11-16', s.id, { p1: '자리비움' }).ok);
-    ok(api.apiTUpdate(tk, '2026-11-16', s.id, { p2: '조퇴', memo: '보호자 연락 후 조기 귀가' }).ok);
+    ok(api.apiTUpdate(tk, '2026-11-16', s.id, { p1: '결석' }).ok);
+    ok(api.apiTUpdate(tk, '2026-11-16', s.id, { p2: '사유', memo: '보호자 연락 후 조기 귀가' }).ok);
     const r = api.apiTBoard(tk, '2026-11-16').list[0];
-    eq(r.p1, '자리비움'); eq(r.p2, '조퇴'); eq(r.memo, '보호자 연락 후 조기 귀가');
+    eq(r.p1, '결석'); eq(r.p2, '사유'); eq(r.memo, '보호자 연락 후 조기 귀가');
     deepEq(api.apiTBoard(tk, '2026-11-16').sups, ['김감독']);
     eq(rows(gas, '감독').length, 2);
-    ok(rows(gas, '변경 기록').some((x) => String(x[3]).indexOf('1교시 -→자리비움') >= 0));
+    ok(rows(gas, '변경 기록').some((x) => String(x[3]).indexOf('1교시 -→결석') >= 0));
+  });
+  test('출결은 출석 · 결석 · 사유 셋뿐이다', () => {
+    const { api, gas, tk, s } = setup();
+    deepEq(api.boot_('teacher').statuses, ['출석', '결석', '사유']);
+    ['지각', '조퇴', '자리비움'].forEach((st) => ok(!api.apiTUpdate(tk, '2026-11-16', s.id, { p1: st }).ok, st + ' 는 없는 상태'));
+    ok(api.apiTUpdate(tk, '2026-11-16', s.id, { p1: '출석' }).ok);
+    /* 시트에 예전 상태 글자가 남아 있어도 화면에는 빈칸(= 자리를 골랐으면 출석)으로 보인다 */
+    const row = rows(gas, '기록').findIndex((x) => x[1] === s.id);
+    gas.sheets['기록'].getRange(row + 1, 8).setValue('지각');
+    dropCaches(gas);
+    eq(api.apiTBoard(tk, '2026-11-16').list[0].p2, '');
   });
   test('없는 상태 · 너무 긴 메모 · 수요일 기록은 막는다', () => {
     const { api, tk, s } = setup();
@@ -505,11 +516,11 @@ describe('캐시가 사라져도 시트에서 그대로 되살린다', () => {
     const b = student(api, tk, { n: 6, name: '이바다' });
     api.apiPick(a.token, 30);
     api.apiPick(b.token, 31);
-    api.apiTUpdate(tk, '2026-11-16', a.id, { p2: '지각' });
+    api.apiTUpdate(tk, '2026-11-16', a.id, { p2: '사유' });
     dropCaches(gas);
     const r = api.apiTBoard(tk, '2026-11-16');
     eq(r.list.find((x) => x.name === '김하늘').seat, 30);
-    eq(r.list.find((x) => x.name === '김하늘').p2, '지각');
+    eq(r.list.find((x) => x.name === '김하늘').p2, '사유');
     dropCaches(gas);
     ok(!api.apiPick(a.token, 31).ok, '31번은 여전히 이바다 자리');
     at(api, '2026-11-16 18:40');
