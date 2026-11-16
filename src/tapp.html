@@ -18,7 +18,9 @@ var T = {
   /* 체험판 · 미리보기는 새로 고칠 때마다 가짜 시트가 새로 깔리므로 지난 접속표를 쓰지 않는다 */
   token: BOOT_DATA.preview ? null : store('sc12-t'), name: store('sc12-tn') || '', tab: store('sc12-tab') || 'sup',
   date: '', period: 1, mode: 'detail', board: null, ver: '', roster: null, poll: null, search: '',
-  rollGrade: Number(store('sc12-rg') || 1), rollDate: '', cls: store('sc12-cls') || '1-1'
+  rollGrade: Number(store('sc12-rg') || 1), rollDate: '', cls: store('sc12-cls') || '1-1',
+  /* 담임교사 탭에서 고쳤지만 아직 저장하지 않은 줄 — { 열쇠: { n, name, d, label } } */
+  drafts: {}
 };
 
 /* ── 로그인 ── */
@@ -61,7 +63,7 @@ function tLogout(msg) {
   if (T.poll) { T.poll.stop(); T.poll = null; }
   if (T.token) call('apiLogout', [T.token], { quiet: true });
   closeModal(); PIN_DRAW = null;
-  T.token = null; T.board = null; T.roster = null; T.ver = '';
+  T.token = null; T.board = null; T.roster = null; T.ver = ''; T.drafts = {};
   store('sc12-t', null); store('sc12-tn', null);
   tGate(msg);
 }
@@ -82,7 +84,7 @@ function start() {
   fill(who, [
     h('span', { class: 'who-name' }, T.name + ' 선생님'),
     h('button', { class: 'btn small pinbtn', type: 'button', onclick: openPinReset }, '🔑 학생 PIN 초기화'),
-    h('button', { class: 'btn small', type: 'button', onclick: function () { tLogout(); } }, '나가기')]);
+    h('button', { class: 'btn small', type: 'button', onclick: function () { confirmLeave(function () { tLogout(); }); } }, '나가기')]);
   if (!T.date) T.date = todayLocal();
   loadRoster();
   showTab(T.tab);
@@ -107,6 +109,8 @@ var TABS = [
   { key: 'class', label: '🧑‍🏫 담임교사' }
 ];
 function showTab(key) {
+  /* 담임교사 탭에서 저장하지 않은 줄이 있으면 먼저 묻는다 */
+  if (T.tab === 'class' && key !== 'class' && classDirty().length) { confirmLeave(function () { showTab(key); }); return; }
   T.tab = key; store('sc12-tab', key);
   fill($('tabs'), TABS.map(function (t) {
     return h('button', { class: 'tab' + (t.key === key ? ' on' : ''), type: 'button', onclick: function () { showTab(t.key); } }, t.label);
@@ -573,8 +577,12 @@ function classOptions() {
 }
 
 function buildClass() {
-  var sel = h('select', { onchange: function () { T.cls = sel.value; store('sc12-cls', sel.value); renderClass(); } },
-    classOptions().map(function (o) { return h('option', { value: o.v }, o.label); }));
+  var sel = h('select', { onchange: function () {
+    /* 저장하지 않은 줄이 있으면 반을 바꾸기 전에 묻는다 — 일단 원래 반으로 되돌려 두고, 이동하기로 하면 바꾼다 */
+    var want = sel.value;
+    sel.value = T.cls;
+    confirmLeave(function () { T.cls = want; sel.value = want; store('sc12-cls', want); renderClass(); });
+  } }, classOptions().map(function (o) { return h('option', { value: o.v }, o.label); }));
   sel.value = T.cls;
   var ta = h('textarea', { rows: '6', maxlength: '6000', placeholder: '출석부 표를 그대로 복사해 붙여 넣거나, 한 줄에 한 명씩 「번호 이름 요일」 로 적으세요.\n예)  12 박수연 화 목\n     14 성규범 월 화 목 금' });
   fill($('pane'), [
@@ -583,8 +591,9 @@ function buildClass() {
         h('b', null, '우리 반 '), sel,
         h('button', { class: 'btn', type: 'button', onclick: function () { loadRoster(); } }, '↻ 새로 불러오기')),
       h('div', { class: 'msg info', style: 'margin-top:10px' },
-        '야자를 신청하는 학생은 월 · 화 · 목 · 금 가운데 이틀 이상 골라야 하고, 참여하는 날은 1 · 2교시 모두 참여합니다. ',
-        '학번은 학년 · 반 · 번호로 저절로 정해집니다 (예: 1학년 2반 5번 → 10205).')),
+        h('div', null, '야자를 신청하는 학생은 월 · 화 · 목 · 금 가운데 이틀 이상 골라야 합니다.'),
+        h('div', null, '참여하는 날은 1 · 2교시 모두 참여합니다.'),
+        h('div', null, '학부모 동의가 확인된 학생만 추가해주세요.'))),
     h('div', { class: 'card', id: 'classBox' }, h('p', { class: 'note' }, '명단을 불러오는 중…')),
     h('details', { class: 'card' },
       h('summary', { style: 'cursor:pointer;font-weight:700' }, '📋 여러 명 한꺼번에 붙여넣기'),
@@ -619,15 +628,34 @@ function renderClass() {
 }
 
 function classRow(s, cc) {
-  var num = h('input', { type: 'number', min: '1', max: String(BOOT_DATA.numMax), value: s ? s.n : '' });
-  var nm = h('input', { type: 'text', maxlength: '5', value: s ? s.name : '', placeholder: s ? '' : '새 학생 이름' });
-  var days = BOOT_DATA.days.map(function (d, i) { return h('input', { type: 'checkbox', checked: s ? s.d[i] : false, 'aria-label': d + '요일' }); });
+  /* 고친 값은 T.drafts 에 둔다 — 다른 줄을 저장해 표를 새로 그려도 고치던 값이 사라지지 않게 */
+  var key = s ? s.id : 'new:' + cc.g + '-' + cc.c;
+  var orig = s ? { n: String(s.n), name: s.name, d: s.d.slice() } : { n: '', name: '', d: BOOT_DATA.days.map(function () { return false; }) };
+  var cur = T.drafts[key] || orig;
+  var num = h('input', { type: 'number', min: '1', max: String(BOOT_DATA.numMax), value: cur.n });
+  var nm = h('input', { type: 'text', maxlength: '5', value: cur.name, placeholder: s ? '' : '새 학생 이름' });
+  var days = BOOT_DATA.days.map(function (d, i) { return h('input', { type: 'checkbox', checked: cur.d[i], 'aria-label': d + '요일' }); });
   var sidCell = h('td', null, s ? s.sid : '-');
+  var tr;
   function upd() {
     var n = Number(num.value);
     sidCell.textContent = n >= 1 && n <= BOOT_DATA.numMax ? String(cc.g) + (cc.c < 10 ? '0' : '') + cc.c + (n < 10 ? '0' : '') + n : '-';
   }
-  num.addEventListener('input', upd);
+  /* 처음 값과 다르면 「저장 안 됨」 으로 표시하고 T.drafts 에 담는다. 처음 값으로 되돌리면 지운다 */
+  function sync() {
+    var now = { n: num.value.trim(), name: nm.value.trim(), d: days.map(function (x) { return x.checked; }) };
+    var same = now.n === orig.n && now.name === orig.name && now.d.join() === orig.d.join();
+    if (same) delete T.drafts[key];
+    else {
+      now.label = cc.g + '학년 ' + cc.c + '반 ' + (s ? s.n + '번 ' + s.name : '새 학생 줄' + (now.name ? '(' + now.name + ')' : ''));
+      T.drafts[key] = now;
+    }
+    if (tr) tr.classList.toggle('dirty', !same);
+    upd();
+  }
+  num.addEventListener('input', sync);
+  nm.addEventListener('input', sync);
+  days.forEach(function (x) { x.addEventListener('change', sync); });
   function save(btn) {
     var d = days.map(function (x) { return x.checked; });
     var n = Number(num.value), name = nm.value.trim();
@@ -639,6 +667,7 @@ function classRow(s, cc) {
       btn.disabled = false;
       if (!r.ok) { if (r.msg) modal('저장하지 못했습니다', h('p', null, r.msg)); return; }
       toast((s ? '고쳤습니다: ' : '넣었습니다: ') + r.sid + ' ' + name);
+      delete T.drafts[key];
       T.ver = '';
       loadRoster();
     });
@@ -647,13 +676,40 @@ function classRow(s, cc) {
     ? [h('button', { class: 'btn small primary', type: 'button', onclick: function (e) { save(e.currentTarget); } }, '저장'), ' ',
        h('button', { class: 'btn small danger', type: 'button', onclick: function () { delStudent(s); } }, '삭제')]
     : [h('button', { class: 'btn small primary', type: 'button', onclick: function (e) { save(e.currentTarget); } }, '＋ 추가')];
-  return h('tr', { style: s ? null : 'background:#f8fbff' },
+  actions.push(h('div', { class: 'unsaved' }, '● 저장 안 됨'));
+  tr = h('tr', { class: s ? null : 'newrow' },
     h('td', null, num), h('td', null, nm), days.map(function (x) { return h('td', null, x); }),
     sidCell,
     h('td', null, s ? [h('span', { class: 'tag ' + (s.pin ? 'ok' : 'warn') }, s.pin ? '정함' : '아직'), ' ',
       s.pin ? h('button', { class: 'btn small danger', type: 'button', onclick: function () { resetPin(s); } }, '초기화') : null] : '-'),
     h('td', null, actions));
+  if (T.drafts[key]) sync();
+  return tr;
 }
+
+/** 저장하지 않은 줄의 이름표 목록 */
+function classDirty() {
+  return Object.keys(T.drafts).map(function (k) { return T.drafts[k].label; });
+}
+
+/** 저장하지 않은 줄이 있으면 「저장하지 않고 이동할까요?」 를 묻고, 이동하기로 하면 then() — 없으면 바로 then() */
+function confirmLeave(then) {
+  var list = classDirty();
+  if (!list.length) { then(); return; }
+  modal('저장하지 않은 변경이 있습니다', h('div', null,
+    h('p', { style: 'margin-top:0' }, '담임교사 탭에서 고친 내용(신청 요일 · 번호 · 이름)을 아직 저장하지 않았습니다.'),
+    h('ul', { class: 'dirtylist' }, list.slice(0, 8).map(function (l) { return h('li', null, l); })),
+    list.length > 8 ? h('p', { class: 'note' }, '그 밖에 ' + (list.length - 8) + '줄 더') : null,
+    h('p', null, h('b', null, '저장하지 않고 이동할까요?'), ' 이동하면 고친 내용은 사라집니다.')), [
+    { label: '저장하지 않고 이동', cls: 'danger', onclick: function () { T.drafts = {}; then(); } },
+    { label: '돌아가서 저장하기', cls: 'primary' }
+  ]);
+}
+
+/* 창을 닫거나 새로 고칠 때도 — 브라우저가 「사이트에서 나가시겠습니까?」 를 묻는다 */
+window.addEventListener('beforeunload', function (e) {
+  if (T.token && classDirty().length) { e.preventDefault(); e.returnValue = ''; }
+});
 
 function delStudent(s) {
   ask('명단에서 지우기', s.sid + ' ' + s.name + ' 학생을 야자 명단에서 지울까요? 지난 출결 기록은 시트 「기록」 에 그대로 남습니다.', '지우기').then(function (y) {
@@ -661,6 +717,7 @@ function delStudent(s) {
     tCall('apiTDeleteStudent', [s.id]).then(function (r) {
       if (!r.ok) { if (r.msg) modal('지우지 못했습니다', h('p', null, r.msg)); return; }
       toast(s.name + ' 학생을 명단에서 지웠습니다.');
+      delete T.drafts[s.id];
       T.ver = '';
       loadRoster();
     });

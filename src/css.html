@@ -153,6 +153,12 @@ table.list th { background: #f5f7fb; font-weight: 700; }
 table.list td.l { text-align: left; }
 table.list .btn { white-space: nowrap; }
 table.list input[type=text], table.list input[type=number] { width: 100%; min-height: 34px; padding: 4px 6px; }
+/* 담임교사 탭 — 새 학생 줄, 고쳤지만 저장하지 않은 줄 */
+table.list tr.newrow td { background: #f8fbff; }
+table.list tr.dirty td { background: #fff7e6; }
+.unsaved { display: none; margin-top: 2px; color: #b45309; font-size: 12px; font-weight: 700; white-space: nowrap; }
+tr.dirty .unsaved { display: block; }
+.dirtylist { margin: 6px 0; padding-left: 20px; font-weight: 700; }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 13px; font-weight: 700; background: #eef1f6; color: #374151; }
 .tag.g1 { background: #e0e9ff; color: var(--g1); } .tag.g2 { background: #ffe4ea; color: var(--g2); }
 .tag.warn { background: #fff1d6; color: #8a5300; } .tag.bad { background: #fde2e2; color: #9b1c1c; } .tag.ok { background: #e3f5e8; color: #166534; }
