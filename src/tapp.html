@@ -149,8 +149,13 @@ function buildSup() {
         h('span', null, h('i', { class: 'l1' }), '1학년'),
         h('span', null, h('i', { class: 'l2' }), '2학년'),
         h('span', null, '줄무늬 = 결석 · 사유'),
+        h('span', null, h('i', { class: 'lx' }), '미신청 = 신청하지 않은 날 참여'),
         h('span', null, '📝 = 메모 있음'),
         h('span', { id: 'supNames' }))),
+    h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🙋 신청하지 않고 참여한 학생 ', h('span', { id: 'extraCnt', class: 'tag xtag' }, '0')),
+        h('p', { class: 'note' }, '이날 신청하지 않은 요일이거나 야자를 신청하지 않은 학생이 「학부모 동의」 를 체크하고 자리를 고르면 여기에 나오고, ' +
+          '배치도의 자리에는 「미신청」 표시가 붙습니다. 1 · 2교시 모두 참여합니다.'),
+        h('div', { id: 'extraList' })),
     h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🚪 신청했지만 자리를 안 고른 학생 ', h('span', { id: 'missCnt', class: 'tag bad' }, '0')),
         h('p', { class: 'note' }, '결석이면 [결석], 병원·행사 등으로 빠지면 [자세히] 에서 「사유」 와 메모를 남기세요.'),
         h('p', { class: 'note pre' }, '📌 ', h('b', null, '담임 선생님은 결석 사유를 미리 적어 둘 수 있습니다.'),
@@ -197,6 +202,11 @@ function matches(s) {
   return s.name.indexOf(q) >= 0 || s.sid.indexOf(q) >= 0;
 }
 function pOf(s) { return s['p' + T.period] || ''; }
+/** 이날 참여했는가 (자리를 골랐거나 「출석」 표시) */
+function attended(s) { return !!(s.seat || s.p1 === '출석' || s.p2 === '출석'); }
+/** 이날 신청하지 않고 참여한 학생인가 */
+function isExtra(s) { return !!s.ex && attended(s); }
+function dayText(d) { return BOOT_DATA.days.filter(function (x, i) { return d[i]; }).join('·'); }
 
 function renderMap() {
   if (!$('mapbox')) return;
@@ -207,30 +217,35 @@ function renderMap() {
   $('cFree').textContent = BOOT_DATA.seatMax - taken;
   /* 출석 = 「출석」 표시 + 자리를 골랐고 아무 표시가 없는 학생 */
   var cnt = { '출석': 0, '결석': 0, '사유': 0 };
+  var extra = 0;
   (b ? b.list : []).forEach(function (s) {
     var p = pOf(s) || (s.seat ? '출석' : '');
     if (cnt[p] !== undefined) cnt[p]++;
+    if (isExtra(s)) extra++;
   });
   fill($('counts'), Object.keys(cnt).map(function (k) {
     return h('span', null, k + ' ', h('b', { style: 'color:' + ({ '출석': '#15803d', '결석': '#374151', '사유': '#0f766e' })[k] }, cnt[k]));
-  }));
+  }).concat([h('span', null, '(미신청 참여 ', h('b', { style: 'color:#7c3aed' }, extra), ')')]));
   $('supNames').textContent = b ? dateLabel(b.date) + '(' + b.dayName + ') 감독 교사: ' + (b.sups && b.sups.length ? b.sups.join(', ') : '아직 없음') : '';
   drawMap($('mapbox'), function (no) {
     var s = seats[no];
     if (!s) return { cls: 'empty', title: no + '번 · 빈자리' };
     var p = pOf(s);
     var key = STATUS_KEY[p] || '';
+    var ex = isExtra(s);
     var kids = [
       h('span', { class: 'gb' }, s.g),
       s.memo ? h('span', { class: 'memo-dot' }, '📝') : null,
+      ex ? h('span', { class: 'xb' }, '미신청') : null,
       h('span', { class: 'no corner' }, no),
       nameSpan(s.name),
       h('span', { class: 'sb' }, s.sid)
     ];
     if (p && p !== '출석') kids.push(h('span', { class: 'stl st-' + key }, p));
     return {
-      cls: 'taken clickable g' + s.g + (key ? ' st-' + key : '') + (matches(s) ? ' hit' : ''),
+      cls: 'taken clickable g' + s.g + (key ? ' st-' + key : '') + (ex ? ' ex' : '') + (matches(s) ? ' hit' : ''),
       title: no + '번 · ' + s.sid + ' ' + s.name + ' (' + s.g + '학년 ' + s.c + '반 ' + s.n + '번)' +
+        (ex ? '\n🙋 신청하지 않은 날 참여 · 학부모 동의 ' + (s.pc ? '체크 ' + s.pc.slice(11, 16) : '체크 없음') : '') +
         '\n1교시: ' + (s.p1 || '출석') + ' · 2교시: ' + (s.p2 || '출석') + (s.memo ? '\n메모: ' + s.memo : ''),
       kids: kids,
       onclick: function () { seatClick(s); }
@@ -294,12 +309,14 @@ function openDetail(s) {
   function redraw() { fill(rowsBox, [statusRow('1교시', s, 'p1'), statusRow('2교시', s, 'p2')]); }
   redraw();
   var dayIdx = BOOT_DATA.days.indexOf(T.board ? T.board.dayName : '');
+  var notApplied = s.ex || (dayIdx >= 0 && !s.d[dayIdx]);
   var body = h('div', null,
     h('p', { class: 'note', style: 'margin-top:0' },
-      s.g + '학년 ' + s.c + '반 ' + s.n + '번 · 신청 요일 ' + (BOOT_DATA.days.filter(function (d, i) { return s.d[i]; }).join('·') || '없음') +
-      (dayIdx >= 0 && !s.d[dayIdx] ? ' (이날은 신청한 요일이 아님)' : '') +
+      s.g + '학년 ' + s.c + '반 ' + s.n + '번 · 신청 요일 ' + (dayText(s.d) || '없음 (야자 미신청 학생)') +
       (s.seat ? ' · 자리 고른 때 ' + (s.at || '').slice(11, 16) + ' · 바꾼 횟수 ' + (s.ch || 0) + '번' : ' · 이날 자리를 고르지 않음') +
       ' · PIN ' + (s.pin ? '정함' : '아직 안 정함')),
+    notApplied ? h('div', { class: 'xnote' }, '🙋 이날은 신청하지 않은 날입니다 · 학부모 동의 ',
+      s.pc ? h('b', null, '학생이 체크함 (' + s.pc.slice(11, 16) + ')') : h('b', null, '체크 없음')) : null,
     rowsBox, both,
     h('div', { class: 'row' }, h('b', null, '메모')),
     memo, counter,
@@ -341,7 +358,33 @@ function resetPin(s) {
   });
 }
 
+/** 🙋 신청하지 않고 참여한 학생 — 자리 차례로 */
+function renderExtra() {
+  var box = $('extraList');
+  if (!box) return;
+  var list = (T.board ? T.board.list : []).filter(isExtra)
+    .sort(function (a, b) { return (a.seat || 999) - (b.seat || 999) || (a.sid < b.sid ? -1 : 1); });
+  $('extraCnt').textContent = list.length + '명';
+  if (!list.length) { fill(box, h('p', { class: 'note' }, '이날 신청하지 않고 참여한 학생은 없습니다.')); return; }
+  fill(box, h('div', { style: 'overflow-x:auto' }, h('table', { class: 'list' },
+    h('thead', null, h('tr', null, h('th', null, '자리'), h('th', null, '학번'), h('th', null, '이름'), h('th', null, '신청 요일'),
+      h('th', null, '학부모 동의'), h('th', null, ''))),
+    h('tbody', null, list.map(function (s) {
+      return h('tr', null,
+        h('td', null, s.seat ? h('b', null, s.seat + '번') : '-'),
+        h('td', null, h('span', { class: 'tag g' + s.g }, s.g + '학년'), ' ', s.sid),
+        h('td', null, s.name),
+        h('td', null, dayText(s.d) || h('span', { class: 'tag xtag' }, '야자 미신청')),
+        h('td', null, s.pc ? h('span', { class: 'tag ok' }, '✔ 체크 ' + s.pc.slice(11, 16)) : h('span', { class: 'tag warn' }, '체크 없음(교사 기록)')),
+        h('td', null, h('button', { class: 'btn small', type: 'button', onclick: function () {
+          if (s.seat) scrollToSeat($('mapbox'), s.seat);
+          openDetail(s);
+        } }, '자세히')));
+    })))));
+}
+
 function renderMiss() {
+  renderExtra();
   var box = $('missList');
   if (!box) return;
   var list = (T.board ? T.board.list : []).filter(function (s) { return s.applied && !s.seat; })
@@ -487,6 +530,7 @@ function buildRoll() {
         h('button', { class: 'btn primary', type: 'button', onclick: function () { window.print(); } }, '🖨 인쇄')),
       h('div', { class: 'legend' },
         h('span', null, '1 = 신청(아직 시작 전)'), h('span', null, '○ = 출석 (자리를 골랐고 다른 표시가 없음)'),
+        h('span', null, '◎ = 신청하지 않은 날 참여 (학부모 동의)'),
         h('span', null, '✕ = 결석 · 사 = 사유'),
         h('span', null, '미 = 신청했는데 자리도 출결 표시도 없음'), h('span', null, '◤ = 메모 있음(칸에 마우스를 올리면 보임)'))),
     h('div', { class: 'card', id: 'rollBox' }, h('p', { class: 'note' }, '불러오는 중…')),
@@ -518,8 +562,13 @@ function rollCell(w, s, i, k) {
   if (st) { c.text = STATUS_MARK[st]; c.cls = { '출석': 'o', '결석': 'x', '사유': 's' }[st]; }
   else if (rec && rec.seat) { c.text = '○'; c.cls = 'o'; }
   else if (applied) { if (past) { c.text = '미'; c.cls = 'miss'; } else { c.text = '1'; c.cls = 'ap'; } }
+  /* 신청하지 않은 날 참여한 칸은 ◎ (학부모 동의를 체크하고 자리를 고름) */
+  if (c.text === '○' && rec && rec.ex) {
+    c.text = '◎'; c.cls = 'ex';
+    c.title = '신청하지 않은 날 참여 · 학부모 동의 ' + (rec.pc ? '체크 ' + rec.pc.slice(11, 16) : '체크 없음');
+  }
   if (date === w.today) c.cls += ' today';
-  if (rec && rec.memo) { c.cls += ' has-memo'; c.title = rec.memo; }
+  if (rec && rec.memo) { c.cls += ' has-memo'; c.title = (c.title ? c.title + '\n' : '') + rec.memo; }
   return c;
 }
 
@@ -538,7 +587,8 @@ function renderRoll(w) {
         cells.push(h('td', { class: c.cls, title: c.title || null }, c.text));
       }
     }
-    return h('tr', null, h('td', null, idx + 1), h('td', null, s.c), h('td', null, s.n), h('td', { class: 'nm' }, s.name), cells);
+    return h('tr', null, h('td', null, idx + 1), h('td', null, s.c), h('td', null, s.n),
+      h('td', { class: 'nm' }, s.name, dayText(s.d) ? null : h('span', { class: 'nd' }, ' (미신청)')), cells);
   });
   if (!w.students.length) body = [h('tr', null, h('td', { colspan: '12', class: 'note' }, w.grade + '학년 명단이 비어 있습니다. 담임교사 탭에서 학생을 넣어 주세요.'))];
   fill($('rollBox'), [
@@ -549,18 +599,21 @@ function renderRoll(w) {
   ]);
   /* 날마다 요약 · 결석자 · 메모 */
   var sums = w.dates.map(function (d, i) {
-    var applied = 0, ok = 0, absent = [], memos = [];
+    var applied = 0, ok = 0, absent = [], memos = [], extras = [];
     w.students.forEach(function (s) {
       var rec = w.recs[d][s.id];
       if (s.d[i]) applied++;
       var a = rollCell(w, s, i, 1), b = rollCell(w, s, i, 2);
       if (a.text === '○' && b.text === '○') ok++;
-      var bad = [a.text, b.text].filter(function (x) { return x && x !== '○' && x !== '1'; });
+      if (a.text === '◎' || b.text === '◎') extras.push(s.c + '반 ' + s.name);
+      var bad = [a.text, b.text].filter(function (x) { return x && x !== '○' && x !== '◎' && x !== '1'; });
       if (bad.length) absent.push(s.c + '반 ' + s.name + '(' + bad.join('/') + ')');
       if (rec && rec.memo) memos.push(s.c + '반 ' + s.name + ': ' + rec.memo);
     });
     return h('div', { style: 'margin-bottom:10px' },
-      h('b', null, dateLabel(d) + '(' + DAYN[i] + ')'), ' 신청 ' + applied + '명 · 1·2교시 모두 출석 ' + ok + '명',
+      h('b', null, dateLabel(d) + '(' + DAYN[i] + ')'), ' 신청 ' + applied + '명 · 1·2교시 모두 출석 ' + ok + '명' +
+        (extras.length ? ' · 미신청 참여 ' + extras.length + '명' : ''),
+      extras.length ? h('div', null, h('span', { class: 'tag xtag' }, '🙋 미신청 참여'), ' ', extras.join(', ')) : null,
       absent.length ? h('div', null, h('span', { class: 'tag bad' }, '결석 · 사유 · 미입실'), ' ', absent.join(', ')) : null,
       memos.length ? h('div', { class: 'note' }, '📝 ' + memos.join(' / ')) : null);
   });
@@ -581,7 +634,7 @@ function buildClass() {
     /* 저장하지 않은 줄이 있으면 반을 바꾸기 전에 묻는다 — 일단 원래 반으로 되돌려 두고, 이동하기로 하면 바꾼다 */
     var want = sel.value;
     sel.value = T.cls;
-    confirmLeave(function () { T.cls = want; sel.value = want; store('sc12-cls', want); renderClass(); });
+    confirmLeave(function () { T.cls = want; sel.value = want; store('sc12-cls', want); renderClass(); loadClassLog(); });
   } }, classOptions().map(function (o) { return h('option', { value: o.v }, o.label); }));
   sel.value = T.cls;
   var ta = h('textarea', { rows: '6', maxlength: '6000', placeholder: '출석부 표를 그대로 복사해 붙여 넣거나, 한 줄에 한 명씩 「번호 이름 요일」 로 적으세요.\n예)  12 박수연 화 목\n     14 성규범 월 화 목 금' });
@@ -595,6 +648,7 @@ function buildClass() {
         h('div', null, '참여하는 날은 1 · 2교시 모두 참여합니다.'),
         h('div', null, '학부모 동의가 확인된 학생만 추가해주세요.'))),
     h('div', { class: 'card', id: 'classBox' }, h('p', { class: 'note' }, '명단을 불러오는 중…')),
+    h('div', { class: 'card', id: 'classLog' }),
     h('details', { class: 'card' },
       h('summary', { style: 'cursor:pointer;font-weight:700' }, '📋 여러 명 한꺼번에 붙여넣기'),
       h('p', { class: 'note' }, '출석부(한글) 표의 줄을 그대로 복사해도 됩니다 — 「연번 반 번호 성명」 뒤의 1 표시로 신청 요일을 읽습니다. 다른 반 줄은 넣지 않습니다.'),
@@ -605,6 +659,7 @@ function buildClass() {
       h('div', { id: 'bulkBox' }))
   ]);
   renderClass();
+  loadClassLog();
 }
 
 function curClass() { var p = T.cls.split('-'); return { g: Number(p[0]), c: Number(p[1]) }; }
@@ -615,15 +670,27 @@ function renderClass() {
   if (!T.roster) { fill(box, h('p', { class: 'note' }, '명단을 불러오는 중…')); return; }
   var cc = curClass();
   var list = T.roster.filter(function (s) { return s.g === cc.g && s.c === cc.c; }).sort(function (a, b) { return a.n - b.n; });
-  var rows = list.map(function (s) { return classRow(s, cc); });
+  /* 요일이 하나도 없는 학생 = 야자를 신청하지 않았지만 학부모 동의를 체크하고 참여하려고 스스로 등록한 학생 */
+  var applied = list.filter(function (s) { return dayText(s.d); });
+  var selfReg = list.filter(function (s) { return !dayText(s.d); });
+  var rows = applied.map(function (s) { return classRow(s, cc); });
   rows.push(classRow(null, cc));
-  fill(box, [
-    h('h3', { style: 'margin-top:0' }, cc.g + '학년 ' + cc.c + '반 야자 신청 명단 ', h('span', { class: 'tag' }, list.length + '명')),
-    h('div', { style: 'overflow-x:auto' }, h('table', { class: 'list' },
+  function table(trs) {
+    return h('div', { style: 'overflow-x:auto' }, h('table', { class: 'list' },
       h('thead', null, h('tr', null, h('th', { style: 'width:80px' }, '번호'), h('th', { style: 'width:130px' }, '이름'),
         BOOT_DATA.days.map(function (d) { return h('th', { style: 'width:46px' }, d); }),
         h('th', null, '학번'), h('th', null, 'PIN'), h('th', null, ''))),
-      h('tbody', null, rows)))
+      h('tbody', null, trs)));
+  }
+  fill(box, [
+    h('h3', { style: 'margin-top:0' }, cc.g + '학년 ' + cc.c + '반 야자 신청 명단 ', h('span', { class: 'tag' }, applied.length + '명')),
+    table(rows),
+    selfReg.length ? h('div', { class: 'selfreg' },
+      h('h3', null, '🙋 신청하지 않고 참여한 학생 ', h('span', { class: 'tag xtag' }, selfReg.length + '명')),
+      h('p', { class: 'note' }, '야자를 신청하지 않았지만, 학부모 동의를 체크하고 그날만 참여하려고 학생이 스스로 등록한 경우입니다. ' +
+        '야자를 신청하게 되면 학부모 동의를 확인한 뒤 요일을 이틀 이상 골라 [저장] 하세요 — 위 신청 명단으로 옮겨 갑니다. ' +
+        '학번 · 이름을 잘못 적어 등록한 학생이면 이름을 바로잡거나(PIN 이 지워져 새로 정합니다) [삭제] 하세요.'),
+      table(selfReg.map(function (s) { return classRow(s, cc); }))) : null
   ]);
 }
 
@@ -666,7 +733,8 @@ function classRow(s, cc) {
     tCall('apiTSaveStudent', [{ id: s ? s.id : '', g: cc.g, c: cc.c, n: n, name: name, d: d }]).then(function (r) {
       btn.disabled = false;
       if (!r.ok) { if (r.msg) modal('저장하지 못했습니다', h('p', null, r.msg)); return; }
-      toast((s ? '고쳤습니다: ' : '넣었습니다: ') + r.sid + ' ' + name);
+      toast((s ? '고쳤습니다: ' : '넣었습니다: ') + r.sid + ' ' + name +
+        (r.pinCleared ? ' — 이름이 바뀌어 PIN 을 지웠습니다. 학생이 다음에 새로 정합니다.' : ''), r.pinCleared ? 4500 : 2600);
       delete T.drafts[key];
       T.ver = '';
       loadRoster();
@@ -710,6 +778,120 @@ function confirmLeave(then) {
 window.addEventListener('beforeunload', function (e) {
   if (T.token && classDirty().length) { e.preventDefault(); e.returnValue = ''; }
 });
+
+/* ── 📅 우리 반 출석 기록 (한 달) — 신청한 학생 · 신청하지 않고 참여한 학생 · 명단에서 빠진 학생 모두 ── */
+function dayOf(date) {
+  var p = date.split('-');
+  return '일월화수목금토'.charAt(new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay());
+}
+function shiftYm(ym, n) {
+  var y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)) - 1 + n;
+  y += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+  return y + '-' + (m < 9 ? '0' : '') + (m + 1);
+}
+
+function loadClassLog() {
+  var box = $('classLog');
+  if (!box) return;
+  var cc = curClass();
+  if (!T.logYm) T.logYm = (T.date || todayLocal()).slice(0, 7);
+  var key = T.cls + '|' + T.logYm;
+  fill(box, [logHead(cc), h('p', { class: 'note' }, '불러오는 중…')]);
+  tCall('apiTClassLog', [cc.g, cc.c, T.logYm]).then(function (r) {
+    /* 기다리는 사이 반 · 달 · 탭을 바꿨으면 늦게 온 답은 버린다 */
+    var now = $('classLog');
+    if (!now || T.tab !== 'class' || key !== T.cls + '|' + T.logYm) return;
+    if (!r.ok) { fill(now, [logHead(cc), h('div', { class: 'msg' }, r.msg || '불러오지 못했습니다.')]); return; }
+    fill(now, [logHead(cc), logTable(r)]);
+  });
+}
+
+function logHead(cc) {
+  function go(n) { T.logYm = n ? shiftYm(T.logYm, n) : T.logYm; loadClassLog(); }
+  return [
+    h('div', { class: 'loghead' },
+      h('h3', null, '📅 ' + cc.g + '학년 ' + cc.c + '반 출석 기록'),
+      h('span', { class: 'seg' },
+        h('button', { class: 'btn small', type: 'button', onclick: function () { go(-1); } }, '◀ 이전 달'),
+        h('b', { class: 'ym' }, Number(T.logYm.slice(0, 4)) + '년 ' + Number(T.logYm.slice(5, 7)) + '월'),
+        h('button', { class: 'btn small', type: 'button', onclick: function () { go(1); } }, '다음 달 ▶'),
+        h('button', { class: 'btn small', type: 'button', onclick: function () { go(0); } }, '↻'))),
+    h('p', { class: 'note', style: 'margin:4px 0' }, '야자를 신청한 학생과 신청하지 않고 참여한 학생을 모두 보여 줍니다. 칸을 누르면 그날 자리 · 출결 · 메모가 보입니다.'),
+    h('div', { class: 'legend', style: 'justify-content:flex-start;margin:0 0 8px' },
+      h('span', null, '○ 출석'), h('span', null, '◎ 신청하지 않은 날 참여(학부모 동의)'), h('span', null, '✕ 결석 · 사 사유'),
+      h('span', null, '미 = 신청했는데 기록 없음'), h('span', null, '1 = 신청(아직 시작 전)'),
+      h('span', null, '1·2교시가 다르면 두 표시 (예: ○✕)'))
+  ];
+}
+
+/** 하루 칸 — 1·2교시를 한 칸에. k: 집계용 갈래 */
+function logMark(rec, applied, date, r) {
+  var past = date < r.today || (date === r.today && r.hm > BOOT_DATA.to);
+  function pm(k) {
+    var st = rec['p' + k];
+    if (st === '결석') return 'x';
+    if (st === '사유') return 's';
+    if (st === '출석' || rec.seat) return 'o';
+    return '';
+  }
+  var a = rec ? pm(1) : '', b = rec ? pm(2) : '';
+  if (!a && !b) {
+    if (applied) return past ? { t: '미', cls: 'miss', k: { miss: 1 } } : { t: '1', cls: 'ap', k: {} };
+    return { t: '', cls: '', k: {} };
+  }
+  var sym = { o: rec.ex ? '◎' : '○', x: '✕', s: '사', '': '·' };
+  var one = { o: rec.ex ? 'ex' : 'o', x: 'x', s: 's' };
+  var k = {};
+  if (a === 'o' || b === 'o') k[rec.ex ? 'ex' : 'o'] = 1;
+  if (a === 'x' || b === 'x') k.x = 1;
+  if (a === 's' || b === 's') k.s = 1;
+  return { t: a === b ? sym[a] : sym[a] + sym[b], cls: a === b ? one[a] : 'mix', k: k };
+}
+
+function logTable(r) {
+  if (!r.students.length) return h('p', { class: 'note' }, '이 반에는 아직 학생이 없습니다.');
+  var head = h('tr', null, h('th', { class: 'nm' }, '번호 · 이름'), h('th', null, '신청 요일'),
+    r.dates.map(function (d) {
+      return h('th', { class: (dayOf(d) === '월' ? 'wk ' : '') + (d === r.today ? 'today' : '') }, Number(d.slice(8)), h('div', { class: 'wd' }, dayOf(d)));
+    }),
+    h('th', { class: 'sum' }, '출석'), h('th', { class: 'sum' }, '미신청 참여'), h('th', { class: 'sum' }, '결석'),
+    h('th', { class: 'sum' }, '사유'), h('th', { class: 'sum' }, '미입실'));
+  var body = r.students.map(function (s) {
+    var tot = { o: 0, ex: 0, x: 0, s: 0, miss: 0 };
+    var cells = r.dates.map(function (d) {
+      var rec = (r.recs[s.id] || {})[d] || null;
+      var applied = !s.gone && !!s.d[BOOT_DATA.days.indexOf(dayOf(d))];
+      var m = logMark(rec, applied, d, r);
+      Object.keys(m.k).forEach(function (x) { tot[x]++; });
+      var cls = (m.cls || '') + (dayOf(d) === '월' ? ' wk' : '') + (d === r.today ? ' today' : '') + (rec && rec.memo ? ' has-memo' : '') +
+        (rec || applied ? ' tap' : '');
+      return h('td', { class: cls, title: rec && rec.memo ? rec.memo : null,
+        onclick: rec || applied ? function () { logDetail(s, d, rec, applied); } : null }, m.t);
+    });
+    return h('tr', null,
+      h('td', { class: 'nm' }, h('span', { class: 'nn' }, s.n), ' ', s.name,
+        s.gone ? h('span', { class: 'tag' }, '명단에서 빠짐') : (dayText(s.d) ? null : h('span', { class: 'tag xtag' }, '미신청'))),
+      h('td', { class: 'dd' }, dayText(s.d) || '-'),
+      cells,
+      h('td', { class: 'sum' }, tot.o), h('td', { class: 'sum ex' }, tot.ex || ''), h('td', { class: 'sum' }, tot.x || ''),
+      h('td', { class: 'sum' }, tot.s || ''), h('td', { class: 'sum' }, tot.miss || ''));
+  });
+  return h('div', { class: 'logwrap' }, h('table', { class: 'roll clog' }, h('thead', null, head), h('tbody', null, body)));
+}
+
+function logDetail(s, date, rec, applied) {
+  function row(k, v) { return h('tr', null, h('th', null, k), h('td', { class: 'l' }, v)); }
+  var ex = rec ? rec.ex : !applied;
+  modal(dateLabel(date) + '(' + dayOf(date) + ') · ' + s.n + '번 ' + s.name, h('div', null,
+    h('p', { class: 'note', style: 'margin-top:0' }, ex ? '🙋 신청하지 않은 날' : '야자를 신청한 날'),
+    rec ? h('table', { class: 'list' }, h('tbody', null,
+      row('자리', rec.seat ? rec.seat + '번' : '고르지 않음'),
+      row('1교시', rec.p1 || (rec.seat ? '출석 (표시 없음)' : '-')),
+      row('2교시', rec.p2 || (rec.seat ? '출석 (표시 없음)' : '-')),
+      ex ? row('학부모 동의', rec.pc ? '학생이 체크함 (' + rec.pc.slice(11, 16) + ')' : '체크 없음 (교사가 기록)') : null,
+      row('메모', rec.memo || '-')))
+      : h('p', null, '이날 기록이 없습니다 (자리를 고르지 않았고 출결 표시도 없음).')));
+}
 
 function delStudent(s) {
   ask('명단에서 지우기', s.sid + ' ' + s.name + ' 학생을 야자 명단에서 지울까요? 지난 출결 기록은 시트 「기록」 에 그대로 남습니다.', '지우기').then(function (y) {

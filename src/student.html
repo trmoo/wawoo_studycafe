@@ -7,7 +7,9 @@
  * 모두 서버(Code.gs 의 apiPick)가 다시 검사한다.
  */
 /* 체험판 · 미리보기는 새로 고칠 때마다 가짜 시트가 새로 깔리므로 지난 접속표를 쓰지 않는다 */
-var S = { token: BOOT_DATA.preview ? null : store('sc12-s'), name: store('sc12-sn') || '', ver: '', board: null, poll: null, busy: false };
+var S = { token: BOOT_DATA.preview ? null : store('sc12-s'), name: store('sc12-sn') || '', ver: '', board: null, poll: null, busy: false,
+  /* 신청하지 않은 날 「학부모 동의」 체크 — 저장하지 않는다 (서버가 처음 자리를 고를 때 한 번 받아 시각을 남긴다) */
+  consent: false };
 
 function gateLogin(msg, kind) {
   $('app').classList.add('hidden');
@@ -20,7 +22,8 @@ function gateLogin(msg, kind) {
   var btn = h('button', { class: 'btn primary', type: 'submit', style: 'width:100%;margin-top:6px' }, '들어가기');
   var form = h('form', { onsubmit: function (e) { e.preventDefault(); doLogin(sid, nm, pin, btn, box); } },
     h('h2', null, '🪑 자리 고르러 들어가기'),
-    h('p', { class: 'note' }, '야자를 신청한 날 ' + BOOT_DATA.from + '~' + BOOT_DATA.to + ' 에 오늘 앉을 자리를 고릅니다.'),
+    h('p', { class: 'note' }, '야자 날(월 · 화 · 목 · 금) ' + BOOT_DATA.from + '~' + BOOT_DATA.to + ' 에 오늘 앉을 자리를 고릅니다. ' +
+      '신청하지 않은 날이나 야자를 신청하지 않은 학생도 학부모님께 허락을 받으면 자리를 고를 수 있습니다.'),
     h('label', { class: 'field' }, h('span', null, '학번 (5자리)'), sid),
     h('label', { class: 'field' }, h('span', null, '이름'), nm),
     h('label', { class: 'field' }, h('span', null, 'PIN (숫자 4자리)'), pin),
@@ -50,20 +53,26 @@ function doLogin(sidEl, nmEl, pinEl, btn, box) {
   call('apiLogin', [sid, name, pin]).then(function (r) {
     btn.disabled = false;
     if (r.ok) { enter(r); return; }
-    if (r.setup) { gateSetPin(sid, name, r.msg); return; }
+    if (r.setup) { gateSetPin(sid, name, r.msg, !!r.fresh); return; }
     fill(box, h('div', { class: 'msg' }, r.msg));
   });
 }
 
-function gateSetPin(sid, name, msg) {
+/**
+ * PIN 정하기. fresh = 야자 명단에 없는 학번(신청하지 않은 학생)이 처음 들어온 경우 —
+ * 학번을 잘못 적어 남의 학번으로 등록하지 않게 「학번 · 이름이 맞습니다」 를 한 번 더 체크하게 한다.
+ */
+function gateSetPin(sid, name, msg, fresh) {
   var p1 = h('input', { type: 'password', inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: '숫자 4자리' });
   var p2 = h('input', { type: 'password', inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: '한 번 더' });
   [p1, p2].forEach(function (p) { p.addEventListener('input', function () { p.value = p.value.replace(/[^0-9]/g, '').slice(0, 4); }); });
+  var sure = h('input', { type: 'checkbox' });
   var box = h('div');
   var btn = h('button', { class: 'btn primary', type: 'submit', style: 'width:100%;margin-top:6px' }, 'PIN 정하고 들어가기');
   var form = h('form', {
     onsubmit: function (e) {
       e.preventDefault();
+      if (fresh && !sure.checked) { fill(box, h('div', { class: 'msg' }, '학번 · 이름이 맞는지 확인하고 체크해 주세요.')); return; }
       if (!/^[0-9]{4}$/.test(p1.value)) { fill(box, h('div', { class: 'msg' }, 'PIN 은 숫자 4자리로 정해 주세요.')); return; }
       if (p1.value !== p2.value) { fill(box, h('div', { class: 'msg' }, '두 번 넣은 PIN 이 다릅니다.')); return; }
       btn.disabled = true;
@@ -74,8 +83,13 @@ function gateSetPin(sid, name, msg) {
       });
     }
   },
-    h('h2', null, '🔑 PIN 정하기'),
+    h('h2', null, fresh ? '🙋 처음 오셨네요' : '🔑 PIN 정하기'),
     h('div', { class: 'msg info' }, msg),
+    fresh ? h('div', { class: 'whoami' },
+      h('div', { class: 'big' }, Number(sid.charAt(0)) + '학년 ' + Number(sid.slice(1, 3)) + '반 ' + Number(sid.slice(3)) + '번 · ' + name),
+      h('p', { class: 'note' }, '야자를 신청했는데 이 화면이 보이면 학번을 잘못 적었거나 담임 선생님이 아직 명단에 넣지 않은 것입니다. ' +
+        '[← 처음으로] 를 눌러 학번을 다시 확인하고, 그래도 같으면 담임 선생님께 말씀드리세요.'),
+      h('label', { class: 'check' }, sure, h('span', null, '위 학번 · 이름이 내 것이 맞습니다'))) : null,
     h('p', { class: 'note' }, name + ' (' + sid + ') 학생의 PIN 을 정합니다. 친구에게 알려 주지 마세요. 0000 · 1234 처럼 쉬운 숫자는 쓸 수 없습니다. ' +
       '잊으면 감독 선생님이나 담임 선생님께 초기화를 부탁하면 됩니다.'),
     h('label', { class: 'field' }, h('span', null, '새 PIN'), p1),
@@ -100,7 +114,7 @@ function enter(r) {
 function logout(msg) {
   if (S.poll) S.poll.stop();
   if (S.token) call('apiLogout', [S.token], { quiet: true });
-  S.token = null; S.board = null; S.ver = '';
+  S.token = null; S.board = null; S.ver = ''; S.consent = false;
   store('sc12-s', null); store('sc12-sn', null);
   gateLogin(msg || '', msg ? 'info' : '');
 }
@@ -114,7 +128,7 @@ function load(quiet) {
       return;
     }
     if (r.same && S.board) {
-      S.board.open = r.open; S.board.why = r.why; S.board.mine = r.mine; S.board.changesLeft = r.changesLeft; S.board.hm = r.hm;
+      ['open', 'why', 'mine', 'changesLeft', 'hm', 'applied', 'consented', 'myDays'].forEach(function (k) { S.board[k] = r[k]; });
     } else {
       S.board = r;
     }
@@ -133,8 +147,10 @@ function render() {
   $('todayPill').textContent = dateLabel(b.date) + ' (' + b.dayName + ') · 자리 고르기 ' + BOOT_DATA.from + '~' + BOOT_DATA.to;
   fill($('mineText'), b.mine ? [S.name + ' — 오늘 내 자리: ', h('b', null, '★ ' + b.mine + '번')] : S.name + ' — 아직 오늘 자리를 고르지 않았습니다');
   $('whyText').textContent = b.open
-    ? (b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 오늘 바꿀 수 있는 횟수: ' + Math.max(0, b.changesLeft) + '번' : '빈자리를 눌러 오늘 앉을 자리를 고르세요.')
+    ? (b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 오늘 바꿀 수 있는 횟수: ' + Math.max(0, b.changesLeft) + '번'
+      : (needConsent() ? '아래 「학부모 동의」 를 체크한 뒤 빈자리를 눌러 오늘 앉을 자리를 고르세요.' : '빈자리를 눌러 오늘 앉을 자리를 고르세요.'))
     : b.why;
+  renderConsent(b);
   drawMap($('mapbox'), function (no) {
     var s = b.seats ? b.seats[no] : null;
     if (s) {
@@ -154,21 +170,57 @@ function render() {
   if (b.mine && S.scrolledTo !== b.mine) { scrollToSeat($('mapbox'), b.mine); S.scrolledTo = b.mine; }
 }
 
+/** 오늘 신청하지 않은 날이고, 아직 학부모 동의를 체크하고 자리를 고른 적이 없는가 */
+function needConsent() {
+  var b = S.board;
+  return !!b && !b.applied && !b.consented;
+}
+
+/** 신청하지 않은 날 — 「학부모 동의」 체크 칸 (신청한 날에는 숨긴다) */
+function renderConsent(b) {
+  var box = $('consentBox');
+  var yajaDay = BOOT_DATA.days.indexOf(b.dayName) >= 0;
+  if (b.applied || !yajaDay) { box.classList.add('hidden'); fill(box, null); return; }
+  box.classList.remove('hidden');
+  var head = b.myDays
+    ? '🙋 오늘(' + b.dayName + '요일)은 신청한 요일이 아닙니다 (신청한 요일: ' + b.myDays + ')'
+    : '🙋 야자를 신청하지 않은 학생입니다';
+  if (b.consented) {
+    fill(box, h('div', { class: 'consent ok' }, h('b', null, head),
+      h('div', null, '학부모 동의를 체크하고 오늘 참여합니다. 1 · 2교시 모두 참여해야 합니다.')));
+    return;
+  }
+  var chk = h('input', { type: 'checkbox', id: 'consentChk', checked: S.consent,
+    onchange: function () { S.consent = chk.checked; box.firstChild.classList.toggle('on', chk.checked); } });
+  fill(box, h('div', { class: 'consent' + (S.consent ? ' on' : '') }, h('b', null, head),
+    h('div', null, '신청하지 않은 날에도 학부모님께 허락을 받았다면 자리를 골라 자습할 수 있습니다. 참여하면 1 · 2교시 모두 참여합니다.'),
+    h('label', { class: 'check big' }, chk, h('span', null, '오늘 야간 자율학습 참여를 학부모님께 허락받았습니다'))));
+}
+
 function pick(no) {
   var b = S.board;
   if (!b || S.busy) return;
+  var nc = needConsent();
+  if (nc && !S.consent) {
+    modal('학부모 동의를 먼저 체크해 주세요', h('p', null,
+      '오늘은 신청하지 않은 날입니다. 학부모님께 허락을 받았다면 위쪽 「오늘 야간 자율학습 참여를 학부모님께 허락받았습니다」 를 체크한 뒤 자리를 고르세요.'));
+    var c = $('consentChk');
+    if (c) c.parentNode.scrollIntoView({ block: 'center' });
+    return;
+  }
   var text = b.mine
     ? b.mine + '번에서 ' + no + '번으로 자리를 바꿀까요? 바꾸면 오늘 남은 바꾸기 횟수가 ' + Math.max(0, b.changesLeft - 1) + '번이 됩니다.'
-    : no + '번 자리로 정할까요?';
+    : no + '번 자리로 정할까요?' + (nc ? ' 오늘은 신청하지 않은 날이라 「학부모 동의」 체크와 함께 감독 선생님 화면에 「미신청 참여」 로 보입니다. 1 · 2교시 모두 참여합니다.' : '');
   ask(no + '번 자리', text, '네, 이 자리로').then(function (yes) {
     if (!yes) return;
     S.busy = true;
-    call('apiPick', [S.token, no]).then(function (r) {
+    call('apiPick', [S.token, no, nc ? S.consent === true : false]).then(function (r) {
       S.busy = false;
       if (r.ok) { toast('★ ' + r.seat + '번 자리로 정했습니다.'); S.ver = ''; load(false); return; }
       if (r.relogin) { logout('다시 들어와 주세요.'); return; }
+      if (r.needConsent) S.consent = false;
       modal('자리를 정하지 못했습니다', h('p', null, r.msg));
-      if (r.refresh) { S.ver = ''; load(false); }
+      if (r.refresh || r.needConsent) { S.ver = ''; load(false); }
     });
   });
 }

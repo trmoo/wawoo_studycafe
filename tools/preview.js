@@ -89,7 +89,8 @@ if (require.main === module) {
   const N = '<b>미리보기</b> — 배포 전 확인용입니다. 학생 이름은 모두 지어낸 것이고, 저장은 이 창 안의 가짜 시트에만 됩니다(창을 닫으면 사라짐). ' +
     '시계는 2026-11-16(월) 18:10 에서 출발합니다. ';
   const a = build('student', { out: path.join(DIST, 'preview.html'),
-    notice: N + '학생 <b>10105 김하랑 / PIN 3141</b> · 처음 들어오는 학생 <b>20307 이서온</b> · <a href="preview-teacher.html">교사 화면</a>' });
+    notice: N + '학생 <b>10105 김하랑 / PIN 3141</b> · 처음 들어오는 학생 <b>20307 이서온</b> · ' +
+      '월요일 미신청 <b>10336 박도담 / PIN 2718</b> · 명단에 없는 학번 <b>10238</b> · <a href="preview-teacher.html">교사 화면</a>' });
   const b = build('teacher', { out: path.join(DIST, 'preview-teacher.html'),
     notice: N + '교사 이름은 아무 한글 이름 · 체험용 비밀번호 <b>' + DEMO_PW + '</b> ·<a href="preview.html">학생 화면</a>' });
   console.log('만들었습니다 → dist/preview.html (' + a.kb + 'KB) · dist/preview-teacher.html (' + b.kb + 'KB)');

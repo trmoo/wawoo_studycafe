@@ -92,6 +92,10 @@ textarea { width: 100%; resize: vertical; }
 .seat.st-excused { background-image: repeating-linear-gradient(-45deg, rgba(15, 118, 110, .18) 0 0.7cqw, transparent 0.7cqw 1.4cqw); }
 .stl.st-absent { color: #374151; } .stl.st-excused { color: var(--teal); }
 .seat .memo-dot { position: absolute; left: 0.3cqw; bottom: 0.2cqw; font-size: 1.25cqw; }
+/* 신청하지 않은 날 참여 — 보랏빛 바탕 + 오른쪽 아래 「미신청」 (색만으로 가르지 않게 글자도 붙인다) */
+.seat.taken.ex { background-color: #e4dbff; padding-bottom: 0.7cqw; }   /* 아래 「미신청」 이 학번 줄을 덮지 않게 글을 조금 올린다 */
+.seat .xb { position: absolute; right: 0; bottom: 0; font-size: 1.22cqw; font-weight: 800; color: #fff; background: var(--purple);
+  padding: 0 0.45cqw; border-top-left-radius: 0.7cqw; line-height: 1.3; letter-spacing: -0.04em; }
 .seat.hit { outline: 0.5cqw solid #f59e0b; outline-offset: -0.2cqw; animation: hit 1s ease-in-out infinite alternate; z-index: 2; }
 @keyframes hit { from { outline-color: #f59e0b; } to { outline-color: #fde68a; } }
 
@@ -99,6 +103,9 @@ textarea { width: 100%; resize: vertical; }
 .legend i { display: inline-block; width: 18px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; background: #fff; }
 .legend i.l1 { box-shadow: inset 0 0 0 3px var(--g1); }
 .legend i.l2 { box-shadow: inset 0 0 0 3px var(--g2); }
+.legend i.lx { background: #ece6ff; box-shadow: inset -7px -5px 0 0 var(--purple); }
+.xnote { background: #f5f3ff; border: 1px solid #c4b5fd; color: #3b0764; border-radius: 10px; padding: 7px 12px; margin: 4px 0; font-size: 15px; }
+.xnote b { color: var(--purple); }
 
 /* 로그인 */
 .gate { max-width: 440px; margin: 30px auto; }
@@ -117,6 +124,18 @@ textarea { width: 100%; resize: vertical; }
 .status { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
 .status .big { font-size: 20px; font-weight: 800; }
 .status .big b { color: var(--brand); }
+/* 신청하지 않은 날 — 학부모 동의 체크 */
+.consent-wrap { flex: 1 1 100%; }
+.consent { border: 2px solid #c4b5fd; background: #f5f3ff; color: #3b0764; border-radius: 12px; padding: 10px 14px; }
+.consent > b { display: block; color: var(--purple); font-size: 17px; margin-bottom: 2px; }
+.consent.on { border-color: var(--purple); }
+.consent.ok { border-color: #a7f3d0; background: #ecfdf5; color: #134e4a; }
+.consent.ok > b { color: var(--teal); }
+label.check { display: flex; gap: 10px; align-items: center; margin-top: 8px; font-weight: 700; cursor: pointer; }
+label.check input { width: 22px; height: 22px; flex: none; accent-color: var(--purple); }
+label.check.big { background: #fff; border: 1px solid #ddd6fe; border-radius: 10px; padding: 9px 12px; font-size: 17px; }
+.whoami { border: 2px solid #c4b5fd; background: #f5f3ff; border-radius: 12px; padding: 10px 14px; margin-top: 10px; }
+.whoami .big { font-size: 20px; font-weight: 800; color: #3b0764; }
 
 /* 탭 */
 .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
@@ -153,6 +172,9 @@ table.list th { background: #f5f7fb; font-weight: 700; }
 table.list td.l { text-align: left; }
 table.list .btn { white-space: nowrap; }
 table.list input[type=text], table.list input[type=number] { width: 100%; min-height: 34px; padding: 4px 6px; }
+/* 휴대폰에서 표가 좁아져도 번호 · 이름 칸이 사라지지 않게 (넘치면 표가 옆으로 밀린다) */
+table.list input[type=number] { min-width: 58px; }
+table.list input[type=text] { min-width: 92px; }
 /* 담임교사 탭 — 새 학생 줄, 고쳤지만 저장하지 않은 줄 */
 table.list tr.newrow td { background: #f8fbff; }
 table.list tr.dirty td { background: #fff7e6; }
@@ -162,6 +184,10 @@ tr.dirty .unsaved { display: block; }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 13px; font-weight: 700; background: #eef1f6; color: #374151; }
 .tag.g1 { background: #e0e9ff; color: var(--g1); } .tag.g2 { background: #ffe4ea; color: var(--g2); }
 .tag.warn { background: #fff1d6; color: #8a5300; } .tag.bad { background: #fde2e2; color: #9b1c1c; } .tag.ok { background: #e3f5e8; color: #166534; }
+.tag.xtag { background: #ede9fe; color: #5b21b6; }
+/* 담임교사 탭 — 신청하지 않고 참여한 학생 */
+.selfreg { margin-top: 18px; padding-top: 6px; border-top: 2px dashed #ddd6fe; }
+.selfreg h3 { margin: 8px 0 2px; }
 
 /* 휴대폰 — 글자 · 단추는 크게 두고 여백만 줄인다 (입력 칸 글자 16px 이상: 아이폰이 저절로 확대하지 않게) */
 @media (max-width: 600px) {
@@ -200,7 +226,32 @@ table.roll td.o { color: #15803d; font-weight: 800; }
 table.roll td.x { color: #fff; background: #ef4444; font-weight: 800; }
 table.roll td.miss { color: #b91c1c; background: #fee2e2; font-weight: 800; }
 table.roll td.s { color: var(--teal); background: #e6f6f3; font-weight: 800; }
+table.roll td.ex { color: #fff; background: var(--purple); font-weight: 800; }
+table.roll td.mix { color: #92400e; background: #fef3c7; font-weight: 800; }
 table.roll td.today { outline: 2px solid var(--brand); outline-offset: -2px; }
+table.roll .nd { font-weight: 600; font-size: 12px; color: var(--purple); }
+/* 담임교사 탭 — 우리 반 출석 기록 (한 달) */
+.loghead { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; }
+.loghead h3 { margin: 0; }
+.loghead .seg { align-items: center; }
+.loghead .ym { min-width: 96px; text-align: center; font-size: 17px; }
+.logwrap { overflow-x: auto; }
+table.clog { width: auto; min-width: 100%; font-size: 13px; }
+table.clog th, table.clog td { padding: 3px 4px; min-width: 26px; }
+table.clog td { white-space: nowrap; }
+table.clog th.sum { min-width: 38px; }
+table.clog th .wd { font-weight: 500; font-size: 11px; color: var(--muted); }
+table.clog th.today { background: #dbe6ff; }
+table.clog .wk { border-left: 2px solid #4b5563; }
+table.clog .nm { position: sticky; left: 0; z-index: 1; background: #fff; text-align: left; white-space: nowrap; min-width: 120px; }
+table.clog thead .nm { background: #f3f5fa; }
+table.clog .nm .nn { display: inline-block; min-width: 20px; color: var(--muted); font-variant-numeric: tabular-nums; }
+table.clog .nm .tag { margin-left: 4px; font-size: 11px; padding: 0 6px; }
+table.clog td.dd { white-space: nowrap; color: var(--muted); }
+table.clog td.tap { cursor: pointer; }
+table.clog td.tap:hover { filter: brightness(.93); }
+table.clog th.sum, table.clog td.sum { background: #f8fafc; font-weight: 700; }
+table.clog td.sum.ex { color: var(--purple); background: #f5f3ff; }
 table.roll td.has-memo { position: relative; }
 table.roll td.has-memo::after { content: ''; position: absolute; right: 1px; top: 1px; border: 4px solid transparent; border-top-color: #f59e0b; border-right-color: #f59e0b; }
 .rollhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
@@ -227,7 +278,7 @@ footer { text-align: center; color: var(--muted); font-size: 13px; padding: 16px
   .card { box-shadow: none; padding: 0; }
   .print-title { display: block; text-align: center; font-size: 18px; font-weight: 800; margin: 0 0 4px; }
   table.roll { font-size: 11px; }
-  table.roll td.x, table.roll td.miss, table.roll td.s { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  table.roll td.x, table.roll td.miss, table.roll td.s, table.roll td.ex { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   @page { size: A4 portrait; margin: 10mm; }
 }
 </style>

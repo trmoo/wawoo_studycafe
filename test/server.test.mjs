@@ -297,21 +297,24 @@ describe('학생 — 자리 고르기', () => {
     at(api, '2026-11-16 21:31');
     ok(!api.apiPick(s.token, 11).ok);
   });
-  test('수요일 · 신청하지 않은 요일에는 고르지 못한다', () => {
+  test('수요일에는 고르지 못하고, 신청하지 않은 요일은 학부모 동의 체크가 있어야 한다', () => {
     const { api } = freshServer();
     const tk = teacher(api);
     const s = student(api, tk, { d: [false, true, true, false] });     // 화 · 목만
-    const r = api.apiPick(s.token, 10);                                   // 월요일
-    ok(!r.ok && r.msg.indexOf('신청한 요일') >= 0, r.msg);
+    const r = api.apiPick(s.token, 10);                                   // 월요일 — 동의 체크 없이
+    ok(!r.ok && r.needConsent && r.msg.indexOf('학부모 동의') >= 0, r.msg);
+    ok(!api.apiPick(s.token, 10, 'true').ok, '글자 "true" 는 체크로 치지 않는다');
     at(api, '2026-11-18 18:00');
-    ok(api.apiPick(s.token, 10).msg.indexOf('없는 날') >= 0);
+    const w = api.apiPick(s.token, 10, true);
+    ok(!w.ok && w.msg.indexOf('없는 날') >= 0, '수요일은 동의해도 안 된다');
     at(api, '2026-11-17 18:00');
-    ok(api.apiPick(s.token, 10).ok, '화요일은 된다');
+    ok(api.apiPick(s.token, 10).ok, '화요일(신청한 날)은 체크 없이 된다');
   });
   test('날짜는 언제나 서버가 정한다 — 화면이 날짜를 보낼 길이 없다', () => {
     const { api } = freshServer();
-    eq(api.apiPick.length, 2);
-    eq(api.apiBoard.length, 2);
+    const params = (fn) => String(fn).match(/^function\s*\w*\s*\(([^)]*)\)/)[1].split(',').map((x) => x.trim()).filter(Boolean);
+    deepEq(params(api.apiPick), ['token', 'seat', 'consent']);
+    deepEq(params(api.apiBoard), ['token', 'ver']);
   });
   test('남이 앉은 자리는 고르지 못한다', () => {
     const { api } = freshServer();
