@@ -62,6 +62,7 @@ function tGate(msg) {
 function tLogout(msg) {
   if (T.poll) { T.poll.stop(); T.poll = null; }
   if (T.token) call('apiLogout', [T.token], { quiet: true });
+  closeModal(); PIN_DRAW = null;
   T.token = null; T.board = null; T.roster = null; T.ver = '';
   store('sc12-t', null); store('sc12-tn', null);
   tGate(msg);
@@ -80,7 +81,10 @@ function start() {
   $('app').classList.remove('hidden');
   var who = $('who');
   who.classList.remove('hidden');
-  fill(who, [T.name + ' 선생님', h('button', { class: 'btn small', type: 'button', onclick: function () { tLogout(); } }, '나가기')]);
+  fill(who, [
+    h('span', { class: 'who-name' }, T.name + ' 선생님'),
+    h('button', { class: 'btn small pinbtn', type: 'button', onclick: openPinReset }, '🔑 학생 PIN 초기화'),
+    h('button', { class: 'btn small', type: 'button', onclick: function () { tLogout(); } }, '나가기')]);
   if (!T.date) T.date = todayLocal();
   loadRoster();
   showTab(T.tab);
@@ -94,7 +98,7 @@ function todayLocal() {
 
 function loadRoster() {
   return tCall('apiTRoster', [], { quiet: true }).then(function (r) {
-    if (r.ok) { T.roster = r.list; if (T.tab === 'class') renderClass(); if (T.tab === 'sup') renderFind(); }
+    if (r.ok) { T.roster = r.list; if (T.tab === 'class') renderClass(); if (T.tab === 'sup') renderFind(); if (PIN_DRAW) PIN_DRAW(); }
   });
 }
 
@@ -118,15 +122,18 @@ function showTab(key) {
 
 /* ═════════ 🪑 야자감독 ═════════ */
 function buildSup() {
-  var search = h('input', { type: 'text', maxlength: '10', placeholder: '이름 또는 학번 찾기', value: T.search,
+  var search = h('input', { type: 'text', id: 'q', maxlength: '10', placeholder: '🔎 이름 또는 학번 찾기', value: T.search, autocomplete: 'off',
     oninput: function () { T.search = search.value.trim(); renderMap(); renderFind(); } });
   var date = h('input', { type: 'date', value: T.date,
     onchange: function () { if (date.value) { T.date = date.value; T.ver = ''; T.board = null; loadBoard(false); } } });
   fill($('pane'), [
     h('div', { class: 'pillrow' },
       h('span', { class: 'pill' }, '배정 ', h('b', { id: 'cTaken' }, '0'), ' 석 · 빈자리 ', h('b', { id: 'cFree' }, '0'), ' 석'),
-      h('span', { class: 'pill' }, search),
-      h('span', { class: 'pill' }, '갱신 ', h('span', { id: 'updated' }, '-'))),
+      h('span', { class: 'pill' }, '갱신 ', h('span', { id: 'updated' }, '-')),
+      /* 찾기 칸은 줄 맨 끝 — 휴대폰에서 줄이 접혀도 결과 상자가 바로 밑에 온다 */
+      h('span', { class: 'pill search' }, search)),
+    /* 찾기 결과 — 검색창 바로 밑 (찾는 글이 있을 때만 보인다) */
+    h('div', { class: 'findpanel noprint hidden', id: 'findList' }),
     h('div', { class: 'card noprint' },
       h('div', { class: 'toolbar' },
         date,
@@ -142,13 +149,12 @@ function buildSup() {
         h('span', null, '줄무늬 = 자리비움·결석·사유'),
         h('span', null, '📝 = 메모 있음'),
         h('span', { id: 'supNames' }))),
-    h('div', { class: 'grid2' },
-      h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🚪 신청했지만 자리를 안 고른 학생 ', h('span', { id: 'missCnt', class: 'tag bad' }, '0')),
-        h('p', { class: 'note' }, '결석이면 [결석], 병원·행사 등으로 미리 빠지면 [자세히] 에서 「사유」 와 메모를 남기세요.'),
-        h('div', { id: 'missList' })),
-      h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🔎 학생 찾기 · PIN 초기화'),
-        h('p', { class: 'note' }, '위 찾기 칸에 이름이나 학번을 적으면 전체 명단에서 찾습니다. PIN 을 잊은 학생은 여기서 초기화하세요.'),
-        h('div', { id: 'findList' })))
+    h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🚪 신청했지만 자리를 안 고른 학생 ', h('span', { id: 'missCnt', class: 'tag bad' }, '0')),
+        h('p', { class: 'note' }, '결석이면 [결석], 병원·행사 등으로 빠지면 [자세히] 에서 「사유」 와 메모를 남기세요.'),
+        h('p', { class: 'note pre' }, '📌 ', h('b', null, '담임 선생님은 결석 사유를 미리 적어 둘 수 있습니다.'),
+          ' 위 날짜 칸에서 빠지는 날을 고르면 그날 신청한 학생이 여기 나옵니다. [자세히] → 「1·2교시 사유」 와 메모(예: 병원 · 체험학습)를 저장하세요. ' +
+          '미리 적어도 그날 감독 교사로 이름이 남지 않습니다.'),
+        h('div', { id: 'missList' }))
   ]);
   zoomBar($('mapbox'));
   renderControls();
@@ -285,8 +291,8 @@ function openDetail(s) {
   var body = h('div', null,
     h('p', { class: 'note', style: 'margin-top:0' },
       s.g + '학년 ' + s.c + '반 ' + s.n + '번 · 신청 요일 ' + (BOOT_DATA.days.filter(function (d, i) { return s.d[i]; }).join('·') || '없음') +
-      (dayIdx >= 0 && !s.d[dayIdx] ? ' (오늘은 신청한 요일이 아님)' : '') +
-      (s.seat ? ' · 자리 고른 때 ' + (s.at || '').slice(11, 16) + ' · 바꾼 횟수 ' + (s.ch || 0) + '번' : ' · 오늘 자리를 고르지 않음') +
+      (dayIdx >= 0 && !s.d[dayIdx] ? ' (이날은 신청한 요일이 아님)' : '') +
+      (s.seat ? ' · 자리 고른 때 ' + (s.at || '').slice(11, 16) + ' · 바꾼 횟수 ' + (s.ch || 0) + '번' : ' · 이날 자리를 고르지 않음') +
       ' · PIN ' + (s.pin ? '정함' : '아직 안 정함')),
     rowsBox, both,
     h('div', { class: 'row' }, h('b', null, '메모')),
@@ -350,32 +356,105 @@ function renderMiss() {
     }))));
 }
 
+/** 찾기 결과 — 검색창 바로 밑에 펼친다. 찾는 글을 지우면 접힌다 */
+var FIND_MAX = 10;
 function renderFind() {
   var box = $('findList');
   if (!box) return;
-  if (!T.search) { fill(box, h('p', { class: 'note' }, '찾을 이름이나 학번을 적어 주세요.')); return; }
-  if (!T.roster) { fill(box, h('p', { class: 'note' }, '명단을 불러오는 중…')); return; }
+  if (!T.search) { box.classList.add('hidden'); fill(box, null); return; }
+  box.classList.remove('hidden');
+  var head = function (txt) {
+    return h('div', { class: 'fp-head' }, h('b', null, txt),
+      h('button', { class: 'btn small', type: 'button', onclick: clearFind }, '✕ 닫기'));
+  };
+  if (!T.roster) { fill(box, [head('🔎 「' + T.search + '」 찾는 중'), h('p', { class: 'note' }, '명단을 불러오는 중…')]); return; }
   var today = {};
   (T.board ? T.board.list : []).forEach(function (s) { today[s.id] = s; });
-  var list = T.roster.filter(matches).slice(0, 12);
-  if (!list.length) { fill(box, h('p', { class: 'note' }, '찾는 학생이 명단에 없습니다.')); return; }
-  fill(box, h('table', { class: 'list' },
-    h('tbody', null, list.map(function (s) {
+  var all = T.roster.filter(matches);
+  if (!all.length) { fill(box, [head('🔎 「' + T.search + '」'), h('p', { class: 'note' }, '찾는 학생이 명단에 없습니다.')]); return; }
+  var list = all.slice(0, FIND_MAX);
+  fill(box, [
+    head('🔎 「' + T.search + '」 찾은 학생 ' + all.length + '명'),
+    h('div', { class: 'fp-list' }, list.map(function (s) {
       var t = today[s.id];
-      return h('tr', null,
-        h('td', null, h('span', { class: 'tag g' + s.g }, s.g + '학년'), ' ', s.sid, ' ', h('b', null, s.name)),
-        h('td', null, BOOT_DATA.days.filter(function (d, i) { return s.d[i]; }).join('·')),
-        h('td', null, t && t.seat ? t.seat + '번' : '자리 없음'),
-        h('td', null, h('span', { class: 'tag ' + (s.pin ? 'ok' : 'warn') }, s.pin ? 'PIN 있음' : 'PIN 없음')),
-        h('td', null,
-          h('button', { class: 'btn small danger', type: 'button', onclick: function () { resetPin(s); } }, 'PIN 초기화'), ' ',
-          h('button', { class: 'btn small', type: 'button', onclick: function () {
-            var row = t || Object.assign({ applied: false, seat: 0, p1: '', p2: '', memo: '', ch: 0, at: '' }, s);
-            if (!t && T.board) { T.board.list.push(row); }
-            openDetail(row);
-          } }, '이날 기록')));
-    }))));
+      var st = t ? [t.p1 ? '1교시 ' + t.p1 : '', t.p2 ? '2교시 ' + t.p2 : ''].filter(Boolean).join(' · ') : '';
+      return h('div', { class: 'fp-row' },
+        h('span', { class: 'tag g' + s.g }, s.g + '학년'),
+        h('span', { class: 'fp-sid' }, s.sid),
+        h('b', null, s.name),
+        h('span', { class: 'note' }, '신청 ' + (BOOT_DATA.days.filter(function (d, i) { return s.d[i]; }).join('·') || '없음')),
+        h('span', { class: 'fp-seat' + (t && t.seat ? ' on' : '') }, t && t.seat ? t.seat + '번 자리' : '자리 없음'),
+        st ? h('span', { class: 'note' }, st) : null,
+        t && t.memo ? h('span', { class: 'note' }, '📝 ' + t.memo) : null,
+        h('button', { class: 'btn small fp-go', type: 'button', onclick: function () {
+          var row = t || Object.assign({ applied: false, seat: 0, p1: '', p2: '', memo: '', ch: 0, at: '' }, s);
+          if (!t && T.board) { T.board.list.push(row); }
+          if (row.seat) scrollToSeat($('mapbox'), row.seat);
+          openDetail(row);
+        } }, '이날 기록'));
+    })),
+    all.length > FIND_MAX ? h('p', { class: 'note' }, '그 밖에 ' + (all.length - FIND_MAX) + '명 더 있습니다. 이름이나 학번을 더 적어 주세요.') : null
+  ]);
 }
+function clearFind() {
+  T.search = '';
+  if ($('q')) { $('q').value = ''; $('q').focus(); }
+  renderMap(); renderFind();
+}
+
+/* ═════════ 🔑 PIN 초기화 — 맨 위 단추, 어느 탭에서나 ═════════ */
+function openPinReset() {
+  if (!T.roster) loadRoster();
+  var q = h('input', { type: 'text', maxlength: '10', placeholder: '이름 또는 학번', autocomplete: 'off', class: 'pin-q' });
+  var box = h('div', { class: 'pin-list' });
+  /* 「정말 지울까요?」 를 띄운 학생 아이디 */
+  var asking = '';
+  function draw() {
+    if (!box.isConnected) return;           // 창을 닫은 뒤에 명단이 늦게 와도 그리지 않는다
+    var s = q.value.trim();
+    if (!T.roster) { fill(box, h('p', { class: 'note' }, '명단을 불러오는 중…')); return; }
+    if (!s) { fill(box, h('p', { class: 'note' }, 'PIN 을 잊은 학생의 이름이나 학번을 적어 주세요.')); return; }
+    var all = T.roster.filter(function (st) { return st.name.indexOf(s) >= 0 || st.sid.indexOf(s) >= 0; });
+    if (!all.length) { fill(box, h('p', { class: 'note' }, '찾는 학생이 명단에 없습니다.')); return; }
+    fill(box, [all.slice(0, FIND_MAX).map(function (st) {
+      var act;
+      if (asking === st.id) {
+        act = h('span', { class: 'pin-ask' }, '정말 지울까요? ',
+          h('button', { class: 'btn small danger', type: 'button', onclick: function () { doReset(st); } }, '지우기'),
+          h('button', { class: 'btn small', type: 'button', onclick: function () { asking = ''; draw(); } }, '취소'));
+      } else if (st.pin) {
+        act = h('button', { class: 'btn small danger', type: 'button', onclick: function () { asking = st.id; draw(); } }, '🔑 초기화');
+      } else {
+        act = h('span', { class: 'tag warn' }, 'PIN 아직 없음');
+      }
+      return h('div', { class: 'pin-row' },
+        h('span', { class: 'tag g' + st.g }, st.g + '학년'),
+        h('span', { class: 'fp-sid' }, st.sid),
+        h('b', null, st.name),
+        h('span', { class: 'note' }, st.c + '반 ' + st.n + '번'),
+        act);
+    }), all.length > FIND_MAX ? h('p', { class: 'note' }, '그 밖에 ' + (all.length - FIND_MAX) + '명 더 — 더 자세히 적어 주세요.') : null]);
+  }
+  function doReset(st) {
+    tCall('apiTResetPin', [st.id]).then(function (r) {
+      if (!r.ok) { if (r.msg) toast(r.msg, 4000); return; }
+      asking = '';
+      st.pin = false;
+      (T.board ? T.board.list : []).forEach(function (x) { if (x.id === st.id) x.pin = false; });
+      toast(r.msg, 3500);
+      draw();
+      loadRoster();
+    });
+  }
+  q.addEventListener('input', function () { asking = ''; draw(); });
+  PIN_DRAW = draw;
+  modal('🔑 학생 PIN 초기화', h('div', null,
+    h('p', { class: 'note', style: 'margin-top:0' },
+      'PIN 을 잊은 학생을 찾아 초기화합니다. 학생은 다음에 들어올 때 새 PIN 4자리를 정합니다. 자리 · 출결 기록은 그대로 남습니다.'),
+    q, box), [{ label: '닫기' }]);
+  draw();
+}
+var PIN_DRAW = null;
 
 /* ═════════ 📋 출석부 ═════════ */
 function buildRoll() {

@@ -448,6 +448,19 @@ describe('야자감독 — 출결 · 메모', () => {
     ok(api.apiTUpdate(tk, '2026-11-19', b.id, { p1: '사유', p2: '사유', memo: '병원(사전 연락)' }).ok, '목요일 미리 기록');
     const w = api.apiTWeek(tk, 2, '2026-11-16');
     eq(w.recs['2026-11-19'][b.id].p1, '사유');
+    deepEq(api.apiTBoard(tk, '2026-11-19').sups, [], '미리 적은 담임은 그날 감독 교사가 아니다');
+  });
+  test('감독 교사는 그날 16:50 뒤에 기록한 교사만 — 미리 · 나중에 적은 기록은 세지 않는다', () => {
+    const { api, tk, s } = setup();
+    at(api, '2026-11-17 09:00');
+    ok(api.apiTUpdate(tk, '2026-11-16', s.id, { p1: '사유', memo: '진료확인서 제출' }).ok, '다음 날 아침 사후 처리');
+    deepEq(api.apiTBoard(tk, '2026-11-16').sups, []);
+    at(api, '2026-11-17 16:00');
+    ok(api.apiTUpdate(tk, '2026-11-17', s.id, { p1: '사유' }).ok);
+    deepEq(api.apiTBoard(tk, '2026-11-17').sups, [], '그날이라도 16:50 전');
+    at(api, '2026-11-17 19:00');
+    ok(api.apiTUpdate(tk, '2026-11-17', s.id, { p2: '결석' }).ok);
+    deepEq(api.apiTBoard(tk, '2026-11-17').sups, ['김감독']);
   });
   test('자리 빼기를 하면 학생이 다시 고를 수 있다', () => {
     const { api, tk, s } = setup();

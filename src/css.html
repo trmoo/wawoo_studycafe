@@ -111,6 +111,8 @@ textarea { width: 100%; resize: vertical; }
 .field span { display: block; font-weight: 700; margin-bottom: 4px; }
 .field input { width: 100%; font-size: 18px; }
 .note { color: var(--muted); font-size: 14px; }
+.note.pre { color: #134e4a; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 8px 12px; }
+.note.pre b { color: var(--teal); }
 .msg { margin-top: 10px; padding: 9px 12px; border-radius: 10px; background: #fdecec; color: #9b1c1c; font-weight: 600; }
 .msg.ok { background: #e8f6ec; color: #166534; }
 .msg.info { background: #eef3ff; color: #1e3a8a; }
@@ -124,9 +126,29 @@ textarea { width: 100%; resize: vertical; }
 .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
 .tab { border: 0; background: #dfe5f2; border-radius: 12px 12px 0 0; padding: 10px 20px; font-weight: 700; cursor: pointer; font-size: 17px; }
 .tab.on { background: var(--card); color: var(--brand); box-shadow: 0 -2px 8px rgba(30, 50, 90, .06); }
-.who { position: absolute; right: 18px; top: 14px; font-size: 14px; color: var(--muted); }
-.who .btn { margin-left: 6px; }
+/* 교사 이름 · 🔑 PIN 초기화 · 나가기 — 어느 탭에서나 보이는 맨 위 줄 */
+.who { position: absolute; right: 18px; top: 14px; font-size: 14px; color: var(--muted);
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
+.who-name { margin-right: 2px; }
+.btn.pinbtn { background: #fff7e6; border-color: #f4c46b; color: #8a5300; font-weight: 700; }
+.btn.pinbtn:hover { background: #ffefcc; }
 .top { position: relative; }
+@media (max-width: 1180px) { .who { position: static; margin-bottom: 10px; } }
+
+/* 찾기 결과 — 검색창 바로 밑 */
+.pill.search { border: 2px solid #f4c46b; }
+@media (max-width: 600px) { .pill.search { flex: 1 1 100%; display: flex; } .pill.search input { width: 100%; } }
+.findpanel { max-width: 900px; margin: -4px auto 12px; background: var(--card); border: 2px solid #f59e0b; border-radius: 14px;
+  padding: 8px 14px 6px; box-shadow: 0 6px 18px rgba(30, 50, 90, .12); }
+.fp-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.fp-row, .pin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 7px 2px; border-top: 1px solid var(--line); }
+.fp-row > :last-child, .pin-row > :last-child { margin-left: auto; }
+.fp-sid { color: var(--muted); font-variant-numeric: tabular-nums; }
+.fp-seat { font-size: 14px; padding: 1px 9px; border-radius: 999px; background: #eef1f6; color: #4b5563; }
+.fp-seat.on { background: #fef3c7; color: #92400e; font-weight: 700; }
+.pin-q { width: 100%; min-height: 46px; font-size: 18px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 10px; margin: 4px 0 6px; }
+.pin-q:focus { border-color: var(--brand); outline: 0; }
+.pin-ask { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; font-weight: 700; color: var(--red); }
 
 /* 목록 표 */
 table.list { width: 100%; border-collapse: collapse; font-size: 15px; }
@@ -138,8 +160,6 @@ table.list input[type=text], table.list input[type=number] { width: 100%; min-he
 .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 13px; font-weight: 700; background: #eef1f6; color: #374151; }
 .tag.g1 { background: #e0e9ff; color: var(--g1); } .tag.g2 { background: #ffe4ea; color: var(--g2); }
 .tag.warn { background: #fff1d6; color: #8a5300; } .tag.bad { background: #fde2e2; color: #9b1c1c; } .tag.ok { background: #e3f5e8; color: #166534; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } .who { position: static; text-align: center; margin-bottom: 8px; } }
 
 /* 휴대폰 — 글자 · 단추는 크게 두고 여백만 줄인다 (입력 칸 글자 16px 이상: 아이폰이 저절로 확대하지 않게) */
 @media (max-width: 600px) {

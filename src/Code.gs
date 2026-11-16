@@ -808,7 +808,8 @@ function apiTUpdate(token, date, id, patch) {
       day.rows[id] = rec;
       writeRec_(date, id, rec, st, t.name);
       saveDay_(date, day);
-      addSup_(date, t.name);
+      /* 감독 교사는 그날 밤(16:50 뒤)에 기록한 교사만 — 담임이 미리 · 나중에 적은 「사유」 는 감독으로 치지 않는다 */
+      if (date === today_() && hm_() >= OPEN_FROM) addSup_(date, t.name);
       log_(t.name, '출결', date + ' ' + st.sid + ' ' + st.name + ' — ' + what.join(', '));
       return { ok: true };
     });

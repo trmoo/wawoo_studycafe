@@ -30,20 +30,43 @@ describe('좌석 배치', () => {
       }
     }
   });
-  test('구역 색이 3학년 화면과 같다', () => {
+  test('구역 색이 3학년 화면과 같다 (번호만 새 차례)', () => {
     const zone = (a, b) => { const z = new Set(); for (let i = a; i <= b; i++) z.add(by[i].zone); return [...z]; };
-    deepEq(zone(1, 18), ['yellow']);
-    deepEq(zone(19, 42), ['orange']);
-    deepEq(zone(43, 78), ['pink']);
-    deepEq(zone(79, 90), ['blue']);
+    deepEq(zone(1, 12), ['blue']);
+    deepEq(zone(13, 21), ['yellow']);
+    deepEq(zone(22, 33), ['orange']);
+    deepEq(zone(34, 69), ['pink']);
+    deepEq(zone(70, 81), ['orange']);
+    deepEq(zone(82, 90), ['yellow']);
     deepEq(zone(91, 114), ['green']);
   });
-  test('자리 차례가 화면과 같다 (19 옆 30, 78 옆 67, 42 옆 31, 109 옆 112)', () => {
-    [[19, 30], [78, 67], [66, 55], [54, 43], [42, 31], [109, 112], [91, 96], [97, 102], [103, 108]].forEach(([a, b]) => {
-      eq(by[a].y, by[b].y, a + '·' + b + ' 같은 줄');
-      ok(by[a].x < by[b].x, a + ' 가 왼쪽');
+
+  /* 2026-11-16 선생님이 그려 준 번호 차례 */
+  const sameRow = (a, b) => { eq(by[a].y, by[b].y, a + '·' + b + ' 같은 줄'); ok(by[a].x < by[b].x, a + ' 가 ' + b + ' 왼쪽'); };
+  const sameCol = (a, b) => { eq(by[a].x, by[b].x, a + '·' + b + ' 같은 세로 줄'); ok(by[a].y < by[b].y, a + ' 가 ' + b + ' 위'); };
+  test('맨 위 한 줄은 왼쪽부터 1~12', () => {
+    for (let n = 1; n < 12; n++) sameRow(n, n + 1);
+    ok(by[1].y < by[13].y, '맨 위 줄이 양옆 줄보다 위');
+  });
+  test('양옆 줄은 위에서 아래로 — 왼쪽 13~21, 오른쪽 82~90', () => {
+    for (let n = 13; n < 21; n++) sameCol(n, n + 1);
+    for (let n = 82; n < 90; n++) sameCol(n, n + 1);
+    sameRow(13, 82);
+    ok(by[13].x < by[22].x && by[81].x < by[82].x, '왼쪽 줄 · 가운데 · 오른쪽 줄 차례');
+  });
+  test('가운데 묶음은 왼쪽 줄 위→아래, 이어서 오른쪽 줄 위→아래 (22~81)', () => {
+    [22, 34, 46, 58, 70].forEach((first, k) => {
+      for (let r = 0; r < 5; r++) { sameCol(first + r, first + r + 1); sameCol(first + 6 + r, first + 7 + r); }
+      for (let r = 0; r < 6; r++) sameRow(first + r, first + 6 + r);
+      if (k < 4) ok(by[first + 11].x < by[first + 12].x, '묶음 ' + (k + 1) + ' 다음 묶음은 오른쪽');
     });
-    ok(by[19].y < by[24].y && by[1].y < by[9].y && by[79].x < by[90].x);
+    /* 그림에 적힌 모서리 번호 */
+    [[22, 28], [27, 33], [34, 40], [39, 45], [46, 52], [51, 57], [58, 64], [63, 69], [70, 76], [75, 81]].forEach(([a, b]) => sameRow(a, b));
+    sameRow(22, 76); sameRow(27, 81);
+  });
+  test('아래쪽 초록 91~114 는 예전 자리 그대로', () => {
+    [[109, 112], [110, 111], [91, 96], [97, 102], [103, 108]].forEach(([a, b]) => sameRow(a, b));
+    sameCol(109, 110); sameCol(113, 114); sameCol(91, 93);
   });
   test('교사 책상 하나, 출입문 둘', () => {
     eq(L.fixtures.filter((f) => f.kind === 'desk').length, 1);
