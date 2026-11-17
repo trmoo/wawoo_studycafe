@@ -7,6 +7,7 @@ import './layout.test.mjs';
 import './server.test.mjs';
 import './extra.test.mjs';
 import './fixed.test.mjs';
+import './remote.test.mjs';
 
 process.stdout.write('\n1·2학년 자습실 좌석배치도 — 점검\n');
 run();

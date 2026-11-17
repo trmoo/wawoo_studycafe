@@ -97,6 +97,36 @@ function boot_(page) {
 }
 function bootJson_(page) { return JSON.stringify(boot_(page)).replace(/</g, '\\u003c'); }
 
+/* ── 깃허브 화면에서 오는 요청 (2026-11-17) ─────────────────────────
+   폰에 구글 계정이 여러 개 로그인되어 있으면 이 웹 앱 주소가 …/u/4/… 처럼 바뀌며 열리지 않는다(구글 쪽 버그).
+   그래서 같은 화면을 깃허브 Pages 에서도 띄우고, 그 화면은 구글 로그인 정보(쿠키)를 보내지 않은 채 여기로 요청한다.
+   로그인 정보가 없으니 구글이 계정을 고를 일이 없다.
+   부를 수 있는 것은 화면이 google.script.run 으로 부르던 api 함수뿐이다 — 아래 목록에 없는 이름은 거절한다.
+   보내는 꼴: 본문 = {"fn":"apiBoard","args":[…]} (text/plain)   받는 꼴: {"ok":true,"r":결과} 또는 {"ok":false,"err":"…"} */
+var REMOTE_API = {
+  apiLogin: apiLogin, apiSetPin: apiSetPin, apiLogout: apiLogout, apiBoard: apiBoard, apiPick: apiPick,
+  apiTLogin: apiTLogin, apiTBoard: apiTBoard, apiTRoster: apiTRoster, apiTUpdate: apiTUpdate, apiTResetPin: apiTResetPin,
+  apiTSetFixed: apiTSetFixed, apiTWeek: apiTWeek, apiTClassLog: apiTClassLog, apiTSaveStudent: apiTSaveStudent,
+  apiTDeleteStudent: apiTDeleteStudent, apiTBulk: apiTBulk
+};
+var REMOTE_MAX_BODY = 200000;      // 붙여 넣는 명단(apiTBulk)도 이 안에 든다
+
+function doPost(e) {
+  var out;
+  try {
+    var body = (e && e.postData && e.postData.contents) || '';
+    if (body.length > REMOTE_MAX_BODY) throw new Error('보낸 내용이 너무 깁니다.');
+    var req = JSON.parse(body);
+    var fn = req && req.fn;
+    if (typeof fn !== 'string' || !Object.prototype.hasOwnProperty.call(REMOTE_API, fn)) throw new Error('부를 수 없는 함수입니다: ' + String(fn).slice(0, 40));
+    var args = Array.isArray(req.args) ? req.args : [];
+    out = { ok: true, r: REMOTE_API[fn].apply(null, args) };
+  } catch (err) {
+    out = { ok: false, err: String((err && err.message) || err).slice(0, 300) };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
 /* ── 시트 메뉴 ────────────────────────────────────────── */
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('자습실')

@@ -55,6 +55,20 @@ function setup(kind) {
     '</script>\n';
 }
 
+/**
+ * 깃허브 Pages 에서 띄우는 실제 앱 화면 — 가짜 시트 대신 웹 앱 배포 주소(…/exec)의 doPost 를 부른다.
+ * BOOT_DATA 는 doGet 이 넣어 주던 것과 같은 값을 Code.gs 의 boot_( ) 로 만들어 박아 둔다.
+ */
+function remoteBoot(kind, url) {
+  if (!/^(https:\/\/script\.google\.com\/macros\/s\/[\w-]{20,}\/exec|http:\/\/127\.0\.0\.1:\d+\/__exec)$/.test(url)) {
+    throw new Error('웹 앱 배포 주소가 …/exec 꼴이 아닙니다: ' + url);
+  }
+  const { loadServer } = require('./gas-load.js');
+  const boot = loadServer().api.boot_(kind === 'teacher' ? 'teacher' : 'index');
+  const js = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\//g, '\\/');
+  return '<script>var BOOT_DATA = ' + js(boot) + ';\nvar REMOTE_URL = ' + js(url) + ';</script>';
+}
+
 /** 화면마다 끼워 넣는 부품 (차례가 중요하다 — src 의 include 차례와 같다) */
 const PARTS = {
   student: { file: 'index.html', includes: ['css', 'layout', 'core', 'student'] },
@@ -72,10 +86,11 @@ function build(kind, opts) {
   });
   const bootTag = '<script>var BOOT_DATA = <?!= BOOT ?>;</script>';
   if (html.indexOf(bootTag) < 0) throw new Error(part.file + ' 에 BOOT_DATA 자리가 없습니다.');
-  html = html.replace(bootTag, () => setup(kind));
+  html = html.replace(bootTag, () => (opts.remote ? remoteBoot(kind, opts.remote) : setup(kind)));
   const left = html.match(/<\?!?=?[\s\S]{0,40}?\?>/g);
   if (left) throw new Error('바꾸지 못한 스크립틀릿이 있습니다: ' + left.join(' , '));
-  html = html.replace('<footer>', () =>
+  if (opts.remote) html = html.replace('<meta charset="utf-8">', () => '<meta charset="utf-8">\n  <meta name="robots" content="noindex">');
+  if (opts.notice) html = html.replace('<footer>', () =>
     '<div style="background:#fff5df;border-top:2px solid #d9a12a;padding:9px 14px;font:14px/1.6 sans-serif;color:#8a5a00;text-align:center">' +
     opts.notice + '</div>\n<footer>');
   fs.mkdirSync(path.dirname(opts.out), { recursive: true });

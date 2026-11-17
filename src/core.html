@@ -43,7 +43,27 @@ function fill(el, kids) {
    · 3.5초가 넘게 걸리면 「새로고침하지 말고 기다려 주세요」 띠를 띄운다.
    · quiet 이면(저절로 하는 갱신) 띠를 띄우지 않고 한 번만 해 본다 — 다음 갱신 때 다시 하면 된다. */
 var IS_PREVIEW = typeof FAKE_SERVER === 'function';
+/* 깃허브 Pages 에서 띄운 화면이면 REMOTE_URL(웹 앱 배포 주소)이 있다 — tools/site.js 가 넣는다.
+   그때는 google.script.run 대신 fetch 로 Code.gs 의 doPost 를 부른다.
+   ⚠ credentials 를 'omit' 으로 둘 것 — 구글 로그인 정보(쿠키)를 보내지 않아야 계정이 여러 개인 폰에서도
+     「…/u/4/…」 로 바뀌지 않고 열린다. 이것이 깃허브 화면을 둔 까닭이다(tools/check.js ⑨ 가 지킨다).
+   ⚠ Content-Type 은 text/plain — 그래야 브라우저가 사전 요청(preflight) 없이 바로 보낸다. */
+var REMOTE = typeof REMOTE_URL === 'string' ? REMOTE_URL : '';
 var pending_ = 0;
+
+function remoteRun_(fn, args, onOk, onErr) {
+  fetch(REMOTE, {
+    method: 'POST', credentials: 'omit', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ fn: fn, args: args })
+  }).then(function (res) {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }).then(function (o) {
+    if (o && o.ok) onOk(o.r);
+    else { if (o && o.err) console.error('서버 오류: ' + o.err); onErr(); }
+  }, function (e) { console.error(e); onErr(); });
+}
 
 function call(fn, args, opts) {
   opts = opts || {};
@@ -90,6 +110,7 @@ function call(fn, args, opts) {
         }, 120 + Math.random() * 120);
         return;
       }
+      if (REMOTE) { remoteRun_(fn, args, onOk, onErr); return; }
       var run = google.script.run.withSuccessHandler(onOk).withFailureHandler(onErr);
       run[fn].apply(run, args);
     }
@@ -231,6 +252,8 @@ function poller(fn, baseMs) {
 }
 
 function store(k, v) {
+  /* 체험판은 깃허브의 실제 앱 화면과 같은 주소(origin)에 있다 — 체험판의 접속표가 실제 앱으로 새지 않게 이름을 가른다 */
+  if (BOOT_DATA.preview) k = 'demo:' + k;
   try {
     if (v === undefined) return sessionStorage.getItem(k);
     if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v);

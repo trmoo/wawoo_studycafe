@@ -3,8 +3,11 @@
   1·2학년 자습실 좌석배치도 — 바로가기 (깃허브 Pages 첫 화면)
   © 2026 티쳐무 · 모든 권리 보유 (오픈소스 라이선스 없음)
 
-  와우고에서 실제로 쓰는 앱스 스크립트 웹 앱으로 보내 주는 한 장짜리 안내다.
-  배포 주소가 바뀌면 아래 두 링크(학생 · 교사)의 주소만 고치면 된다 — tools/site.js 가 두 주소가 맞는 꼴인지 확인한다.
+  와우고에서 실제로 쓰는 앱으로 보내 주는 한 장짜리 안내다.
+  큰 단추는 깃허브에서 띄우는 실제 앱 화면(app/ · app/teacher.html)으로 간다. 그 화면은 구글 로그인 정보 없이
+  앱스 스크립트 웹 앱(doPost)과 주고받으므로, 폰에 구글 계정이 여러 개 있어도 「…/u/4/…」 로 막히지 않는다.
+  배포 주소가 바뀌면 맨 아래 두 링크(rawStudent · rawTeacher)의 주소만 고치면 된다 —
+  tools/site.js 가 그 주소로 app/ 화면을 만들고, 두 주소가 맞는 꼴인지 확인한다.
   체험판(가짜 데이터)은 demo.html · student.html · teacher.html 이다.
 -->
 <html lang="ko">
@@ -39,7 +42,7 @@
   .copy.done { background:#dcfce7; border-color:#86efac; color:#166534; }
   .tip { background:#fff; border-radius: 16px; padding: 14px 20px; margin-top: 18px; color: var(--muted); font-size: 16px; }
   .tip b { color: var(--ink); }
-  footer { text-align:center; color: var(--muted); font-size: 14px; margin-top: 26px; word-break: keep-all; }
+  footer { text-align:center; color: var(--muted); font-size: 14px; line-height: 1.8; margin-top: 26px; word-break: keep-all; }
   footer a { color: var(--muted); }
   @media (max-width: 720px) {
     .wrap { padding: 18px 12px 30px; }
@@ -60,7 +63,7 @@
   <div class="cards">
     <section class="card stu">
       <h2>🧑‍🎓 학생</h2>
-      <a class="go" id="goStudent" href="https://script.google.com/macros/s/AKfycbxJXvN3e4fagqLRMWvUpxlR9Z6JpbMd_v0PyzXEicMOSdFLR-_DsxQAwuHVODcI3004wQ/exec">자리 고르러 가기 →</a>
+      <a class="go" id="goStudent" href="app/">자리 고르러 가기 →</a>
       <ul>
         <li><b>학번 5자리 · 이름 · PIN 4자리</b>로 들어갑니다. 처음이면 PIN 을 새로 정합니다.</li>
         <li>야자를 신청한 요일은 <b>16:50부터</b> 자리를 고릅니다.</li>
@@ -73,7 +76,7 @@
 
     <section class="card tch">
       <h2>🧑‍🏫 선생님</h2>
-      <a class="go" id="goTeacher" href="https://script.google.com/macros/s/AKfycbxJXvN3e4fagqLRMWvUpxlR9Z6JpbMd_v0PyzXEicMOSdFLR-_DsxQAwuHVODcI3004wQ/exec?page=teacher">교사 화면 열기 →</a>
+      <a class="go" id="goTeacher" href="app/teacher.html">교사 화면 열기 →</a>
       <ul>
         <li><b>이름 · 교사용 비밀번호</b>로 들어갑니다. 비밀번호는 학년부에 물어보세요.</li>
         <li><b>🪑 야자감독</b> — 배치도에서 1·2교시 출결 · 메모 · PIN 초기화</li>
@@ -85,9 +88,14 @@
     </section>
   </div>
 
-  <p class="tip">💡 휴대폰에서 이 페이지를 <b>홈 화면에 추가</b>해 두면 다음부터 한 번에 열 수 있습니다.</p>
+  <p class="tip">💡 휴대폰에서 이 페이지를 <b>홈 화면에 추가</b>해 두면 다음부터 한 번에 열 수 있습니다.
+    폰에 구글 계정이 여러 개 로그인되어 있어도 이 주소로는 열립니다.</p>
 
   <footer>
+    위 단추로 열었는데 서버에 연결하지 못한다고 나오면 구글 주소로 바로 여세요 —
+    <a id="rawStudent" href="https://script.google.com/macros/s/AKfycbxJXvN3e4fagqLRMWvUpxlR9Z6JpbMd_v0PyzXEicMOSdFLR-_DsxQAwuHVODcI3004wQ/exec">학생</a> ·
+    <a id="rawTeacher" href="https://script.google.com/macros/s/AKfycbxJXvN3e4fagqLRMWvUpxlR9Z6JpbMd_v0PyzXEicMOSdFLR-_DsxQAwuHVODcI3004wQ/exec?page=teacher">교사</a>
+    (구글 계정이 하나만 로그인된 브라우저에서만 열립니다).<br>
     처음 쓰시는 선생님은 <a href="demo.html">체험판(지어낸 데이터)</a> 으로 먼저 둘러보실 수 있습니다.<br>
     © 2026 티쳐무 · 모든 권리 보유
   </footer>

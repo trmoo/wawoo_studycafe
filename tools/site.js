@@ -3,6 +3,7 @@
  * © 2026 티쳐무 · 모든 권리 보유
  *
  *   node tools/site.js   →   dist/site/index.html (실제 앱 바로가기 — site/index.html 을 그대로 옮긴다)
+ *                            · app/index.html · app/teacher.html (깃허브에서 띄우는 실제 앱 — 웹 앱 doPost 를 부른다)
  *                            · demo.html (체험 안내) · student.html (학생 체험) · teacher.html (교사 체험)
  *
  * 체험판은 미리보기와 같다 — 브라우저 안의 가짜 시트 위에서 진짜 Code.gs 가 돈다.
@@ -120,15 +121,18 @@ const demo = `<!DOCTYPE html>
 `;
 fs.writeFileSync(path.join(OUT, 'demo.html'), demo, 'utf8');
 
-/* 첫 화면 = 실제 앱 바로가기. 배포 주소와 시각이 어긋나면 만들지 않는다. */
+/* 첫 화면 = 실제 앱 바로가기 + 깃허브에서 띄우는 실제 앱 화면(app/).
+   배포 주소는 site/index.html 맨 아래의 rawStudent 링크 한 곳에서 읽는다. 주소 꼴이나 시각이 어긋나면 만들지 않는다. */
 const launch = fs.readFileSync(path.join(__dirname, '..', 'site', 'index.html'), 'utf8');
 const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
 const EXEC = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]{20,}\/exec$/;
 function fail(msg) { console.error('✖ site/index.html — ' + msg); process.exit(1); }
-const stu = (launch.match(/id="goStudent" href="([^"]+)"/) || [])[1];
-const tch = (launch.match(/id="goTeacher" href="([^"]+)"/) || [])[1];
-if (!stu || !EXEC.test(stu)) fail('학생 링크가 앱스 스크립트 배포 주소(…/exec) 꼴이 아닙니다: ' + stu);
-if (tch !== stu + '?page=teacher') fail('교사 링크는 학생 주소 + ?page=teacher 여야 합니다: ' + tch);
+const href = (id) => (launch.match(new RegExp('id="' + id + '" href="([^"]+)"')) || [])[1];
+const raw = href('rawStudent');
+if (!raw || !EXEC.test(raw)) fail('rawStudent 링크가 앱스 스크립트 배포 주소(…/exec) 꼴이 아닙니다: ' + raw);
+if (href('rawTeacher') !== raw + '?page=teacher') fail('rawTeacher 링크는 학생 주소 + ?page=teacher 여야 합니다: ' + href('rawTeacher'));
+if (href('goStudent') !== 'app/') fail('학생 단추(goStudent)는 app/ 으로 가야 합니다: ' + href('goStudent'));
+if (href('goTeacher') !== 'app/teacher.html') fail('교사 단추(goTeacher)는 app/teacher.html 로 가야 합니다: ' + href('goTeacher'));
 ['OPEN_FROM', 'OPEN_FROM_EXTRA', 'OPEN_TO'].forEach((k) => {
   const v = (code.match(new RegExp('var ' + k + " = '([0-9:]+)'")) || [])[1];
   if (!v) fail('Code.gs 에서 ' + k + ' 를 찾지 못했습니다.');
@@ -137,4 +141,9 @@ if (tch !== stu + '?page=teacher') fail('교사 링크는 학생 주소 + ?page=
 if (launch.indexOf('티쳐무') < 0) fail('저작권 표시가 없습니다.');
 fs.writeFileSync(path.join(OUT, 'index.html'), launch, 'utf8');
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '', 'utf8');
-console.log('만들었습니다 → dist/site/  (index 바로가기 · demo 안내 · student ' + a.kb + 'KB · teacher ' + b.kb + 'KB)');
+
+/* 실제 앱 화면 — 화면 코드는 앱스 스크립트와 똑같고, 서버를 부르는 길만 fetch(doPost) 로 바뀐다 (core.html 의 REMOTE) */
+const c = build('student', { out: path.join(OUT, 'app', 'index.html'), remote: raw });
+const d = build('teacher', { out: path.join(OUT, 'app', 'teacher.html'), remote: raw });
+console.log('만들었습니다 → dist/site/  (index 바로가기 · app 학생 ' + c.kb + 'KB · 교사 ' + d.kb + 'KB · demo 안내 · student ' +
+  a.kb + 'KB · teacher ' + b.kb + 'KB)');

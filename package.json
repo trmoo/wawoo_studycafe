@@ -11,6 +11,7 @@
     "preview": "node tools/preview.js",
     "pack": "node tools/pack.js",
     "build": "npm run check && npm test && npm run preview && npm run site && npm run pack",
-    "site": "node tools/site.js"
+    "site": "node tools/site.js",
+    "remote-dev": "node tools/remote-dev.js"
   }
 }

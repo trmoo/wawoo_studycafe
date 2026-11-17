@@ -93,7 +93,7 @@ htmls.forEach((f) => scriptsOf(f).forEach((s) => {
 /* ⑥ 부르는데 없는 함수 — 한 화면에 함께 들어가는 스크립트를 모아 본다 */
 const KNOWN = new Set(('if for while switch catch function return typeof new Number String Boolean Array Object JSON Math Date ' +
   'Promise RegExp Error parseInt parseFloat isNaN encodeURIComponent decodeURIComponent setTimeout clearTimeout ' +
-  'setInterval clearInterval requestAnimationFrame Set Map FAKE_SERVER').split(' '));
+  'setInterval clearInterval requestAnimationFrame Set Map FAKE_SERVER fetch').split(' '));
 ['index.html', 'teacher.html'].forEach((page) => {
   const names = [...read(page).matchAll(/include\('([\w-]+)'\)/g)].map((m) => m[1]).filter((n) => n !== 'css');
   const all = names.map((n) => scriptsOf(n + '.html').join('\n')).join('\n');
@@ -122,9 +122,24 @@ files.forEach((f) => {
 if (/['"][0-9a-f]{64}['"]/.test(code)) bad('⑧ Code.gs 에 64자리 해시가 박혀 있습니다. 비밀번호는 시트 메뉴로 정하게 하세요.');
 if (/var\s+\w*(PW|PASS)\w*\s*=\s*['"]/.test(code)) bad('⑧ Code.gs 에 비밀번호 상수가 있습니다.');
 
+/* ⑨ 깃허브 화면의 통신 — 구글 로그인 정보(쿠키)를 보내지 않아야 계정이 여러 개인 폰에서도 열린다 (2026-11-17).
+   이 줄을 지우면 깃허브 화면을 둔 까닭이 사라진다. Code.gs 의 doPost 와 부를 수 있는 함수 목록도 함께 본다. */
+{
+  const core = scriptsOf('core.html').join('\n');
+  if (!/credentials:\s*'omit'/.test(core)) bad("⑨ core.html 의 fetch 에 credentials: 'omit' 이 없습니다 — 구글 쿠키가 실려 /u/숫자 문제가 돌아옵니다.");
+  if (!/'Content-Type':\s*'text\/plain/.test(core)) bad('⑨ core.html 의 fetch 는 text/plain 으로 보내야 합니다 (사전 요청 없이 가도록).');
+  if (!/^function doPost\(/m.test(code)) bad('⑨ Code.gs 에 doPost 가 없습니다.');
+  const listed = new Set([...((code.match(/var REMOTE_API = \{([\s\S]*?)\};/) || [])[1] || '').matchAll(/(\w+):\s*(\w+)/g)]
+    .filter((m) => m[1] === m[2]).map((m) => m[1]));
+  [...code.matchAll(/^function (api\w+)\(/gm)].forEach((m) => {
+    if (!listed.has(m[1])) bad('⑨ ' + m[1] + ' 가 Code.gs 의 REMOTE_API 목록에 없습니다 — 깃허브 화면에서 부르지 못합니다.');
+  });
+  listed.forEach((n) => { if (!/^api[A-Z]/.test(n)) bad('⑨ REMOTE_API 에 api 함수가 아닌 ' + n + ' 가 있습니다.'); });
+}
+
 if (problems.length) {
   console.log('\n점검에서 ' + problems.length + '가지가 걸렸습니다.\n');
   problems.forEach((p) => console.log('  ✗ ' + p));
   process.exit(1);
 }
-console.log('점검 통과 — 문법 · 끼워 넣기 · 글자열 속 슬래시 · 기본 창 · 서버 함수 · 없는 함수 · 저작권 · 비밀번호 상수');
+console.log('점검 통과 — 문법 · 끼워 넣기 · 글자열 속 슬래시 · 기본 창 · 서버 함수 · 없는 함수 · 저작권 · 비밀번호 상수 · 깃허브 화면 통신');
