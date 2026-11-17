@@ -1,6 +1,6 @@
 <script>
 /*!
- * 교사 화면 — 🪑 야자감독 · 📋 출석부 · 🧑‍🏫 담임교사
+ * 교사 화면 — 🪑 야자감독 · 📋 출석부 · 🧑‍🏫 담임교사 · 📌 지정석
  * © 2026 티쳐무 · 모든 권리 보유
  */
 /* 출결은 셋뿐 — 출석 · 결석 · 사유 (지각 · 조퇴 · 자리비움 같은 일은 「사유」 + 메모로 적는다) */
@@ -98,7 +98,14 @@ function todayLocal() {
 
 function loadRoster() {
   return tCall('apiTRoster', [], { quiet: true }).then(function (r) {
-    if (r.ok) { T.roster = r.list; if (T.tab === 'class') renderClass(); if (T.tab === 'sup') renderFind(); if (PIN_DRAW) PIN_DRAW(); }
+    if (r.ok) {
+      T.roster = r.list;
+      if (T.tab === 'class') renderClass();
+      if (T.tab === 'sup') renderFind();
+      if (T.tab === 'fixed') renderFixed();
+      if (PIN_DRAW) PIN_DRAW();
+      if (FX_DRAW) FX_DRAW();
+    }
   });
 }
 
@@ -106,7 +113,8 @@ function loadRoster() {
 var TABS = [
   { key: 'sup', label: '🪑 야자감독' },
   { key: 'roll', label: '📋 출석부' },
-  { key: 'class', label: '🧑‍🏫 담임교사' }
+  { key: 'class', label: '🧑‍🏫 담임교사' },
+  { key: 'fixed', label: '📌 지정석' }
 ];
 function showTab(key) {
   /* 담임교사 탭에서 저장하지 않은 줄이 있으면 먼저 묻는다 */
@@ -120,6 +128,7 @@ function showTab(key) {
   if (key === 'sup') { buildSup(); T.ver = ''; loadBoard(false); T.poll = poller(function () { return loadBoard(true); }, 10000); }
   if (key === 'roll') buildRoll();
   if (key === 'class') buildClass();
+  if (key === 'fixed') buildFixed();
 }
 
 /* ═════════ 🪑 야자감독 ═════════ */
@@ -152,11 +161,14 @@ function buildSup() {
         h('span', null, h('i', { class: 'l2' }), '2학년'),
         h('span', null, '줄무늬 = 결석 · 사유'),
         h('span', null, h('i', { class: 'lx' }), '미신청 = 신청하지 않은 날 참여'),
+        h('span', null, '📌 = 지정석'),
+        h('span', null, h('i', { class: 'lh' }), '점선 = 지정석을 맡아 두었고 아직 앉지 않음'),
         h('span', null, '📝 = 메모 있음'),
         h('span', { id: 'supNames' }))),
     h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🙋 신청하지 않고 참여한 학생 ', h('span', { id: 'extraCnt', class: 'tag xtag' }, '0')),
         h('p', { class: 'note' }, '이날 신청하지 않은 요일이거나 야자를 신청하지 않은 학생이 「학부모 동의」 를 체크하고 자리를 고르면 여기에 나오고, ' +
-          '배치도의 자리에는 「미신청」 표시가 붙습니다. 1 · 2교시 모두 참여합니다.'),
+          '배치도의 자리에는 「미신청」 표시가 붙습니다. 신청한 학생이 ' + BOOT_DATA.from + '부터 먼저 고르고, 신청하지 않은 학생은 ' +
+          BOOT_DATA.fromExtra + '부터 고릅니다. 1 · 2교시 모두 참여합니다.'),
         h('div', { id: 'extraList' })),
     h('div', { class: 'card' }, h('h3', { style: 'margin-top:0' }, '🚪 신청했지만 자리를 안 고른 학생 ', h('span', { id: 'missCnt', class: 'tag bad' }, '0')),
         h('p', { class: 'note' }, '결석이면 [결석], 병원·행사 등으로 빠지면 [자세히] 에서 「사유」 와 메모를 남기세요.'),
@@ -209,8 +221,8 @@ function matches(s) {
   return s.name.indexOf(q) >= 0 || s.sid.indexOf(q) >= 0;
 }
 function pOf(s) { return s['p' + T.period] || ''; }
-/** 이날 참여했는가 (자리를 골랐거나 「출석」 표시) */
-function attended(s) { return !!(s.seat || s.p1 === '출석' || s.p2 === '출석'); }
+/** 이날 참여했는가 (자리를 골랐거나 「출석」 표시). 맡아 두기만 한 지정석(held)은 아직 참여가 아니다 */
+function attended(s) { return !!((s.seat && !s.held) || s.p1 === '출석' || s.p2 === '출석'); }
 /** 이날 신청하지 않고 참여한 학생인가 */
 function isExtra(s) { return !!s.ex && attended(s); }
 function dayText(d) { return BOOT_DATA.days.filter(function (x, i) { return d[i]; }).join('·'); }
@@ -226,7 +238,7 @@ function renderMap() {
   var cnt = { '출석': 0, '결석': 0, '사유': 0 };
   var extra = 0;
   (b ? b.list : []).forEach(function (s) {
-    var p = pOf(s) || (s.seat ? '출석' : '');
+    var p = pOf(s) || (s.seat && !s.held ? '출석' : '');
     if (cnt[p] !== undefined) cnt[p]++;
     if (isExtra(s)) extra++;
   });
@@ -240,20 +252,26 @@ function renderMap() {
     var p = pOf(s);
     var key = STATUS_KEY[p] || '';
     var ex = isExtra(s);
+    var fixed = !!s.fx && s.fx === no;
+    /* 지정석을 맡아 두었고 아직 앉았다고 알리지 않았으며 출결 표시도 없음 — 점선으로 흐리게 */
+    var wait = !!s.held && !s.p1 && !s.p2;
     var kids = [
       h('span', { class: 'gb' }, s.g),
       s.memo ? h('span', { class: 'memo-dot' }, '📝') : null,
       ex ? h('span', { class: 'xb' }, '미신청') : null,
-      h('span', { class: 'no corner' }, no),
+      h('span', { class: 'no corner' }, fixed ? h('span', { class: 'pin' }, '📌') : null, no),
       nameSpan(s.name),
       h('span', { class: 'sb' }, s.sid)
     ];
+    /* 맡아 두기만 한 지정석은 점선 + 흐린 글자로 가른다 (낮은 좌석에 셋째 줄을 넣으면 이름이 밀려 가린다) */
     if (p && p !== '출석') kids.push(h('span', { class: 'stl st-' + key }, p));
     return {
-      cls: 'taken clickable g' + s.g + (key ? ' st-' + key : '') + (ex ? ' ex' : '') + (matches(s) ? ' hit' : ''),
+      cls: 'taken clickable g' + s.g + (key ? ' st-' + key : '') + (ex ? ' ex' : '') + (wait ? ' held' : '') + (matches(s) ? ' hit' : ''),
       title: no + '번 · ' + s.sid + ' ' + s.name + ' (' + s.g + '학년 ' + s.c + '반 ' + s.n + '번)' +
+        (fixed ? '\n📌 지정석' + (s.held ? ' — 아직 앉았다고 알리지 않음' : '') : '') +
         (ex ? '\n🙋 신청하지 않은 날 참여 · 학부모 동의 ' + (s.pc ? '체크 ' + s.pc.slice(11, 16) : '체크 없음') : '') +
-        '\n1교시: ' + (s.p1 || '출석') + ' · 2교시: ' + (s.p2 || '출석') + (s.memo ? '\n메모: ' + s.memo : ''),
+        (s.held ? '\n1교시: ' + (s.p1 || '-') + ' · 2교시: ' + (s.p2 || '-') : '\n1교시: ' + (s.p1 || '출석') + ' · 2교시: ' + (s.p2 || '출석')) +
+        (s.memo ? '\n메모: ' + s.memo : ''),
       kids: kids,
       onclick: function () { seatClick(s); }
     };
@@ -295,7 +313,7 @@ function statusRow(label, s, key) {
     fill(row, [h('b', null, label)].concat(BOOT_DATA.statuses.map(function (st) {
       return h('button', { class: 'btn small' + (s._draft[key] === st ? ' on' : ''), type: 'button',
         onclick: function () { s._draft[key] = s._draft[key] === st ? '' : st; draw(); } }, st);
-    })).concat([h('span', { class: 'note' }, s._draft[key] ? '' : (s.seat ? '(표시 없음 = 출석으로 봄)' : '(표시 없음)'))]));
+    })).concat([h('span', { class: 'note' }, s._draft[key] ? '' : (s.seat && !s.held ? '(표시 없음 = 출석으로 봄)' : '(표시 없음)'))]));
   }
   draw();
   return row;
@@ -320,7 +338,9 @@ function openDetail(s) {
   var body = h('div', null,
     h('p', { class: 'note', style: 'margin-top:0' },
       s.g + '학년 ' + s.c + '반 ' + s.n + '번 · 신청 요일 ' + (dayText(s.d) || '없음 (야자 미신청 학생)') +
-      (s.seat ? ' · 자리 고른 때 ' + (s.at || '').slice(11, 16) + ' · 바꾼 횟수 ' + (s.ch || 0) + '번' : ' · 이날 자리를 고르지 않음') +
+      (s.held ? ' · 📌 지정석 ' + s.seat + '번을 맡아 둠 (아직 앉았다고 알리지 않음)'
+        : (s.seat ? ' · 자리 고른 때 ' + (s.at || '').slice(11, 16) + ' · 바꾼 횟수 ' + (s.ch || 0) + '번' : ' · 이날 자리를 고르지 않음') +
+          (s.fx ? ' · 📌 지정석 ' + s.fx + '번' : '')) +
       ' · PIN ' + (s.pin ? '정함' : '아직 안 정함')),
     notApplied ? h('div', { class: 'xnote' }, '🙋 이날은 신청하지 않은 날입니다 · 학부모 동의 ',
       s.pc ? h('b', null, '학생이 체크함 (' + s.pc.slice(11, 16) + ')') : h('b', null, '체크 없음')) : null,
@@ -336,7 +356,8 @@ function openDetail(s) {
   var buttons = [
     { label: '🔑 PIN 초기화', cls: 'danger', onclick: function () { resetPin(s); return false; } }
   ];
-  if (s.seat) buttons.push({ label: '자리 빼기', cls: 'danger', onclick: function () {
+  /* 지정석은 빼도 다시 맡아 두므로 「자리 빼기」 를 두지 않는다 — 지정석 탭에서 바꾸거나 푼다 */
+  if (s.seat && !s.held && s.seat !== s.fx) buttons.push({ label: '자리 빼기', cls: 'danger', onclick: function () {
     ask('자리 빼기', s.seat + '번에서 ' + s.name + ' 학생을 뺄까요? 학생이 다시 자리를 고를 수 있습니다.', '빼기').then(function (y) {
       if (y) applyPatch(s, { clearSeat: true }, s.name + ' 학생을 자리에서 뺐습니다.');
     });
@@ -394,7 +415,8 @@ function renderMiss() {
   renderExtra();
   var box = $('missList');
   if (!box) return;
-  var list = (T.board ? T.board.list : []).filter(function (s) { return s.applied && !s.seat; })
+  /* 지정석을 맡아 두었지만 아직 앉았다고 알리지 않은 학생도 여기 나온다 */
+  var list = (T.board ? T.board.list : []).filter(function (s) { return s.applied && (!s.seat || s.held); })
     .sort(function (a, b) { return a.sid < b.sid ? -1 : 1; });
   $('missCnt').textContent = list.length + '명';
   if (!list.length) { fill(box, h('p', { class: 'note' }, '모두 자리를 골랐습니다.')); return; }
@@ -403,7 +425,9 @@ function renderMiss() {
     h('tbody', null, list.map(function (s) {
       return h('tr', null,
         h('td', null, h('span', { class: 'tag g' + s.g }, s.g + '학년'), ' ', s.sid),
-        h('td', null, s.name, s.memo ? h('div', { class: 'note' }, '📝 ' + s.memo) : null),
+        h('td', null, s.name,
+          s.held ? h('div', { class: 'note' }, '📌 지정석 ' + s.seat + '번 — 아직 앉았다고 알리지 않음') : null,
+          s.memo ? h('div', { class: 'note' }, '📝 ' + s.memo) : null),
         h('td', null, s.p1 || '-'), h('td', null, s.p2 || '-'),
         h('td', null,
           h('button', { class: 'btn small', type: 'button', onclick: function () { applyPatch(s, { p1: '결석', p2: '결석' }, s.name + ' 1·2교시 결석'); } }, '결석'),
@@ -439,7 +463,8 @@ function renderFind() {
         h('span', { class: 'fp-sid' }, s.sid),
         h('b', null, s.name),
         h('span', { class: 'note' }, '신청 ' + (BOOT_DATA.days.filter(function (d, i) { return s.d[i]; }).join('·') || '없음')),
-        h('span', { class: 'fp-seat' + (t && t.seat ? ' on' : '') }, t && t.seat ? t.seat + '번 자리' : '자리 없음'),
+        h('span', { class: 'fp-seat' + (t && t.seat && !t.held ? ' on' : '') },
+          t && t.seat ? (t.held ? '📌 ' + t.seat + '번 지정석 (아직 안 앉음)' : t.seat + '번 자리') : (s.fx ? '📌 지정석 ' + s.fx + '번 · 이날 자리 없음' : '자리 없음')),
         st ? h('span', { class: 'note' }, st) : null,
         t && t.memo ? h('span', { class: 'note' }, '📝 ' + t.memo) : null,
         h('button', { class: 'btn small fp-go', type: 'button', onclick: function () {
@@ -753,7 +778,9 @@ function classRow(s, cc) {
     : [h('button', { class: 'btn small primary', type: 'button', onclick: function (e) { save(e.currentTarget); } }, '＋ 추가')];
   actions.push(h('div', { class: 'unsaved' }, '● 저장 안 됨'));
   tr = h('tr', { class: s ? null : 'newrow' },
-    h('td', null, num), h('td', null, nm), days.map(function (x) { return h('td', null, x); }),
+    h('td', null, num),
+    h('td', null, nm, s && s.fx ? h('span', { class: 'tag fxtag', title: '지정석 — 「📌 지정석」 탭에서 바꿉니다' }, '📌' + s.fx) : null),
+    days.map(function (x) { return h('td', null, x); }),
     sidCell,
     h('td', null, s ? [h('span', { class: 'tag ' + (s.pin ? 'ok' : 'warn') }, s.pin ? '정함' : '아직'), ' ',
       s.pin ? h('button', { class: 'btn small danger', type: 'button', onclick: function () { resetPin(s); } }, '초기화') : null] : '-'),
@@ -940,6 +967,152 @@ function bulk(ta, apply) {
   };
   if (apply) ask('붙여넣기', cc.g + '학년 ' + cc.c + '반 명단에 넣을까요? 이미 있는 번호는 이름 · 요일을 고칩니다.', '넣기').then(function (y) { if (y) go(); });
   else go();
+}
+
+/* ═════════ 📌 지정석 — 학생에게 고정 자리를 준다 ═════════
+   지정석은 그 학생이 신청한 요일에만 맡아 둔다(서버 occupy_). 날짜와 상관없는 명단 정보라 T.roster 로 그린다. */
+var FX_DRAW = null;
+
+function fxBySeat() {
+  var m = {};
+  (T.roster || []).forEach(function (s) { if (s.fx) m[s.fx] = s; });
+  return m;
+}
+
+function buildFixed() {
+  fill($('pane'), [
+    h('div', { class: 'card noprint' },
+      h('div', { class: 'msg info', style: 'margin:0' },
+        h('div', null, h('b', null, '📌 지정석'), ' — 배치도에서 자리를 누르면 학생을 찾아 지정하거나, 지정을 풀 수 있습니다.'),
+        h('div', null, '그 학생이 신청한 요일에는 지정석을 맡아 두어 다른 학생이 앉을 수 없습니다 (그 학생이 오지 않은 날도). ' +
+          '신청하지 않은 요일에는 다른 학생도 앉을 수 있습니다.'),
+        h('div', null, '지정석 학생은 신청한 날 다른 자리를 고르지 않고, 와서 자기 자리를 눌러 「앉았어요」 를 알립니다. ' +
+          '알리기 전에는 야자감독 배치도에 점선(아직 안 앉음)으로 보입니다.'),
+        h('div', null, '야자를 신청한 학생(요일이 있는 학생)에게만 줄 수 있습니다.'))),
+    h('div', { class: 'card' },
+      h('div', { class: 'pillrow', style: 'margin-top:0' },
+        h('span', { class: 'pill' }, '지정석 ', h('b', { id: 'fxCnt' }, '0'), ' 석'),
+        h('button', { class: 'btn small', type: 'button', onclick: function () { loadRoster(); } }, '↻ 새로 불러오기')),
+      h('div', { class: 'mapbox', id: 'fxmap' }),
+      h('div', { class: 'legend' },
+        h('span', null, h('i', { class: 'l1' }), '1학년'),
+        h('span', null, h('i', { class: 'l2' }), '2학년'),
+        h('span', null, '빈자리를 누르면 지정 · 지정석을 누르면 바꾸기 · 풀기'))),
+    h('div', { class: 'card', id: 'fxList' })
+  ]);
+  zoomBar($('fxmap'));
+  renderFixed();
+}
+
+function renderFixed() {
+  var box = $('fxmap');
+  if (!box) return;
+  if (!T.roster) { fill(box, h('p', { class: 'note' }, '명단을 불러오는 중…')); return; }
+  var m = fxBySeat();
+  var all = Object.keys(m).map(Number).sort(function (a, b) { return a - b; });
+  $('fxCnt').textContent = all.length;
+  drawMap(box, function (no) {
+    var s = m[no];
+    if (!s) return { cls: 'empty clickable', title: no + '번 · 지정석 아님 — 눌러서 학생 지정', onclick: function () { openFixed(no); } };
+    return {
+      cls: 'taken clickable g' + s.g,
+      title: no + '번 · 📌 ' + s.sid + ' ' + s.name + ' (신청 ' + (dayText(s.d) || '없음') + ')',
+      kids: [h('span', { class: 'gb' }, s.g), h('span', { class: 'no corner' }, h('span', { class: 'pin' }, '📌'), no), nameSpan(s.name), h('span', { class: 'sb' }, s.sid)],
+      onclick: function () { openFixed(no); }
+    };
+  });
+  var list = $('fxList');
+  if (!all.length) {
+    fill(list, [h('h3', { style: 'margin-top:0' }, '📌 지정석 목록'), h('p', { class: 'note' }, '아직 지정석이 없습니다. 위 배치도에서 자리를 눌러 학생에게 지정하세요.')]);
+    return;
+  }
+  fill(list, [
+    h('h3', { style: 'margin-top:0' }, '📌 지정석 목록 ', h('span', { class: 'tag' }, all.length + '석')),
+    h('div', { style: 'overflow-x:auto' }, h('table', { class: 'list' },
+      h('thead', null, h('tr', null, h('th', null, '자리'), h('th', null, '학번'), h('th', null, '이름'), h('th', null, '신청 요일'), h('th', null, ''))),
+      h('tbody', null, all.map(function (no) {
+        var s = m[no];
+        return h('tr', null,
+          h('td', null, h('b', null, '📌 ' + no + '번')),
+          h('td', null, h('span', { class: 'tag g' + s.g }, s.g + '학년'), ' ', s.sid),
+          h('td', null, s.name),
+          h('td', null, dayText(s.d) || h('span', { class: 'tag warn' }, '없음 — 맡아 두지 않음')),
+          h('td', null, h('button', { class: 'btn small', type: 'button', onclick: function () { scrollToSeat($('fxmap'), no); openFixed(no); } }, '바꾸기 · 풀기')));
+      }))))
+  ]);
+}
+
+/** 자리 하나 — 지금 누구의 지정석인지 보여 주고, 학생을 찾아 지정 · 바꾸기 · 풀기 */
+function openFixed(no) {
+  if (!T.roster) loadRoster();
+  var cur = fxBySeat()[no] || null;
+  var q = h('input', { type: 'text', maxlength: '10', placeholder: '이름 또는 학번', autocomplete: 'off', class: 'pin-q' });
+  var box = h('div', { class: 'pin-list' });
+  /* 「바꿀까요?」 를 띄운 학생 아이디 (다른 학생의 지정석을 넘길 때) */
+  var asking = '';
+  function draw() {
+    if (!box.isConnected) return;
+    var s = q.value.trim();
+    if (!T.roster) { fill(box, h('p', { class: 'note' }, '명단을 불러오는 중…')); return; }
+    if (!s) { fill(box, h('p', { class: 'note' }, (cur ? '다른 학생으로 바꾸려면' : '이 자리를 줄 학생의') + ' 이름이나 학번을 적어 주세요.')); return; }
+    var all = T.roster.filter(function (st) { return st.name.indexOf(s) >= 0 || st.sid.indexOf(s) >= 0; });
+    if (!all.length) { fill(box, h('p', { class: 'note' }, '찾는 학생이 명단에 없습니다.')); return; }
+    fill(box, [all.slice(0, FIND_MAX).map(function (st) {
+      var act;
+      if (st.fx === no) act = h('span', { class: 'tag ok' }, '지금 이 자리');
+      else if (!dayText(st.d)) act = h('span', { class: 'tag warn' }, '신청 요일 없음');
+      else if (asking === st.id) {
+        act = h('span', { class: 'pin-ask' }, cur.name + ' 학생의 지정을 풀고 바꿀까요? ',
+          h('button', { class: 'btn small primary', type: 'button', onclick: function () { give(st, true); } }, '바꾸기'),
+          h('button', { class: 'btn small', type: 'button', onclick: function () { asking = ''; draw(); } }, '취소'));
+      } else {
+        act = h('button', { class: 'btn small primary', type: 'button', onclick: function () {
+          if (cur) { asking = st.id; draw(); } else give(st, false);
+        } }, '📌 ' + no + '번으로 지정');
+      }
+      return h('div', { class: 'pin-row' },
+        h('span', { class: 'tag g' + st.g }, st.g + '학년'),
+        h('span', { class: 'fp-sid' }, st.sid),
+        h('b', null, st.name),
+        h('span', { class: 'note' }, '신청 ' + (dayText(st.d) || '없음') + (st.fx && st.fx !== no ? ' · 지금 지정석 ' + st.fx + '번 (옮김)' : '')),
+        act);
+    }), all.length > FIND_MAX ? h('p', { class: 'note' }, '그 밖에 ' + (all.length - FIND_MAX) + '명 더 — 더 자세히 적어 주세요.') : null]);
+  }
+  function give(st, replace) {
+    tCall('apiTSetFixed', [st.id, no, replace]).then(function (r) {
+      if (!r.ok) { if (r.msg) toast(r.msg, 4500); if (r.taken) loadRoster(); return; }
+      closeModal(); FX_DRAW = null;
+      toast('📌 ' + no + '번을 ' + st.name + ' 학생의 지정석으로 정했습니다.' +
+        (r.before ? ' (예전 지정석 ' + r.before + '번은 풀림)' : '') + (r.freed ? ' (' + r.freed + ' 학생의 지정은 풀림)' : ''), 4000);
+      if (r.note) modal('오늘은 그대로 둡니다', h('p', null, r.note));
+      T.ver = '';
+      loadRoster();
+    });
+  }
+  function release() {
+    ask('지정석 풀기', no + '번 지정석을 풀까요? ' + cur.sid + ' ' + cur.name + ' 학생은 다음부터 다른 학생처럼 빈자리를 골라 앉습니다. ' +
+      '(오늘 이미 앉았으면 오늘 자리는 그대로 남습니다)', '풀기').then(function (y) {
+      if (!y) return;
+      tCall('apiTSetFixed', [cur.id, 0]).then(function (r) {
+        if (!r.ok) { if (r.msg) modal('풀지 못했습니다', h('p', null, r.msg)); return; }
+        toast(no + '번 지정석을 풀었습니다.');
+        T.ver = '';
+        loadRoster();
+      });
+    });
+  }
+  q.addEventListener('input', function () { asking = ''; draw(); });
+  FX_DRAW = draw;
+  var buttons = [];
+  if (cur) buttons.push({ label: '📌 지정 풀기', cls: 'danger', onclick: function () { release(); return false; } });
+  buttons.push({ label: '닫기' });
+  modal('📌 ' + no + '번 지정석', h('div', null,
+    cur ? h('div', { class: 'whoami', style: 'margin-top:0' },
+      h('div', { class: 'big' }, cur.g + '학년 ' + cur.c + '반 ' + cur.n + '번 · ' + cur.name + ' (' + cur.sid + ')'),
+      h('p', { class: 'note' }, '신청 요일 ' + (dayText(cur.d) || '없음') + ' — 이 요일에는 이 자리를 맡아 둡니다.'))
+      : h('p', { class: 'note', style: 'margin-top:0' }, '아직 아무에게도 주지 않은 자리입니다. 지정할 학생을 찾아 [📌 ' + no + '번으로 지정] 을 누르세요.'),
+    q, box), buttons);
+  draw();
 }
 
 /* ── 시작 ── */

@@ -5,6 +5,7 @@
  * 시트 네 장
  *   명단      — 야자 신청 학생 (담임교사 탭에서 고친다. 시트에 바로 붙여 넣어도 된다)
  *               + 신청하지 않았지만 스스로 등록한 학생 (요일 칸이 모두 빈칸 — 학부모 동의를 체크하고 그날만 참여)
+ *               + 「지정석」 칸 — 교사가 준 고정 자리 (그 학생이 신청한 요일에는 다른 학생이 앉을 수 없다)
  *   기록      — 날짜마다 학생 한 명 = 한 줄 (좌석 · 1교시 · 2교시 · 메모 · 그날 신청 · 학부모 동의 확인)
  *   감독      — 날짜마다 그날 출결을 기록한 교사
  *   변경 기록 — 누가 언제 무엇을 바꿨는지
@@ -27,7 +28,8 @@ var APP_NAME = '1·2학년 자습실 좌석배치도';
 var TZ = 'Asia/Seoul';
 var DAYS = ['월', '화', '목', '금'];       // 야간 자율학습 요일
 var SEAT_MAX = 114;
-var OPEN_FROM = '16:50';                   // 학생이 자리를 고를 수 있는 시간
+var OPEN_FROM = '16:50';                   // 학생이 자리를 고를 수 있는 시간 (그날 신청한 학생)
+var OPEN_FROM_EXTRA = '17:30';             // 신청하지 않은 날 · 야자를 신청하지 않은 학생은 신청한 학생이 먼저 고른 뒤에 (2026-11-17)
 var OPEN_TO = '21:30';
 var MAX_CHANGES = 3;                       // 하루에 자리를 바꿀 수 있는 횟수 (처음 고르기는 세지 않는다)
 var MIN_DAYS = 2;                          // 신청 요일은 이틀 이상
@@ -51,7 +53,9 @@ var SH_ROSTER = '명단';
 var SH_REC = '기록';
 var SH_SUP = '감독';
 var SH_LOG = '변경 기록';
-var HEAD_ROSTER = ['아이디', '학년', '반', '번호', '학번', '이름', '월', '화', '목', '금', 'PIN 해시', 'PIN 솔트', '고친 때', '고친 사람'];
+/* 「지정석」 = 교사가 준 고정 자리 번호(없으면 빈칸). 2026-11-17 에 더한 칸 — 그 전에 만든 시트는 처음 지정할 때 머리글을 채운다 */
+var HEAD_ROSTER = ['아이디', '학년', '반', '번호', '학번', '이름', '월', '화', '목', '금', 'PIN 해시', 'PIN 솔트', '고친 때', '고친 사람', '지정석'];
+var COL_FIXED = 15;
 /* 「그날 신청」 = 그 기록을 처음 만들 때 그 요일을 신청했는가(신청 · 미신청). 나중에 담임이 요일을 바꿔도 그날 사실은 그대로 남는다.
    「학부모 동의 확인」 = 신청하지 않은 날 학생이 「학부모 동의」 를 체크하고 자리를 고른 시각.
    (2026-11-16 에 더한 두 칸 — 그 전에 만든 시트는 첫 기록 때 머리글을 저절로 채운다) */
@@ -86,7 +90,7 @@ function doGet(e) {
 
 function boot_(page) {
   return {
-    page: page, app: APP_NAME, days: DAYS, from: OPEN_FROM, to: OPEN_TO, statuses: STATUSES,
+    page: page, app: APP_NAME, days: DAYS, from: OPEN_FROM, fromExtra: OPEN_FROM_EXTRA, to: OPEN_TO, statuses: STATUSES,
     maxChanges: MAX_CHANGES, minDays: MIN_DAYS, seatMax: SEAT_MAX, classMax: CLASS_MAX,
     numMax: NUM_MAX, memoMax: MEMO_MAX, preview: false
   };
@@ -395,7 +399,7 @@ function teacherOf_(token) { return getSession_(token, 't'); }
 
 /* ── 명단 ─────────────────────────────────────────────── */
 /**
- * 명단 = { v: 판 번호, list: [ {id,g,c,n,sid,name,d:[월,화,목,금],ph,ps,r} ] }
+ * 명단 = { v: 판 번호, list: [ {id,g,c,n,sid,name,d:[월,화,목,금],ph,ps,fx,r} ] }   fx = 지정석 번호(없으면 0)
  * 캐시에 두고 쓴다. 고칠 때마다 캐시를 지운다.
  */
 function roster_(inLock) {
@@ -439,10 +443,13 @@ function readRoster_() {
     var sid = str_(row[4]);
     if (!ID_RE.test(id) || sid !== sidOf_(g, c, n)) out.needFix = true;
     if (!ID_RE.test(id) || !SID_RE.test(sid) || !NAME_RE.test(name)) continue;
+    var fx = Number(row[COL_FIXED - 1]) || 0;
     out.list.push({
       id: id, g: g, c: c, n: n, sid: sid, name: name,
       d: [truthy_(row[6]), truthy_(row[7]), truthy_(row[8]), truthy_(row[9])],
-      ph: str_(row[10]), ps: str_(row[11]), r: i + 2
+      ph: str_(row[10]), ps: str_(row[11]),
+      fx: fx >= 1 && fx <= SEAT_MAX && Math.floor(fx) === fx ? fx : 0,
+      r: i + 2
     });
   }
   return out;
@@ -620,12 +627,36 @@ function saveDay_(date, day) {
   putJ_('day:' + date, day);
 }
 
-/** 그 자리에 앉은 학생의 아이디 (명단에 없는 기록은 셈하지 않는다) */
-function seatOwner_(day, seat, rmap) {
+/**
+ * 그날 좌석 → 앉은(또는 맡아 둔) 학생 { 좌석번호: { id, held } }
+ *   ① 기록에 적힌 좌석이 먼저다 (명단에 없는 기록은 셈하지 않는다).
+ *   ② 지정석이 있는 학생이 그날을 신청했고 아직 기록에 좌석이 없으면 지정석을 맡아 둔다 (held: true).
+ *      그 학생이 오지 않아도 다른 학생은 앉을 수 없다. 신청하지 않은 요일에는 맡아 두지 않는다.
+ *   지정석을 주기 전에 다른 학생이 오늘 이미 그 자리를 골랐으면 오늘은 그 기록이 이긴다.
+ */
+function occupy_(day, ro, date) {
+  var occ = {};
+  var rmap = rosterMap_(ro);
   for (var id in day.rows) {
-    if (day.rows[id].seat === seat && rmap[id]) return id;
+    var r = day.rows[id];
+    if (r.seat && rmap[id]) occ[r.seat] = { id: id, held: false };
   }
-  return '';
+  var idx = DAYS.indexOf(dayName_(date));
+  if (idx < 0) return occ;
+  ro.list.forEach(function (s) {
+    if (!s.fx || !s.d[idx]) return;
+    var mine = day.rows[s.id];
+    if (mine && mine.seat) return;                 // 오늘 이미 앉았다 (지정석이든 그 전에 고른 다른 자리든)
+    if (!occ[s.fx]) occ[s.fx] = { id: s.id, held: true };
+  });
+  return occ;
+}
+
+/** 지정석 학생이 오늘 지정석에만 앉아야 하는가 — 그날 신청했고, 지정석이 비어 있거나 자기 몫일 때 */
+function fixedOnly_(st, win, occ) {
+  if (!st.fx || !win.applied) return false;
+  var o = occ[st.fx];
+  return !o || o.id === st.id;
 }
 
 /** 기록 한 줄을 시트에 쓴다 (자물쇠 안에서). 캐시의 줄 번호가 어긋났으면 찾아서 고친다 */
@@ -698,22 +729,28 @@ function addSup_(date, name) {
 /**
  * 신청하지 않은 날(다른 요일을 신청했거나, 아예 신청하지 않은 학생)도 자리를 고를 수 있다 —
  * 대신 학생이 「학부모 동의」 를 체크해야 한다 (apiPick 이 검사). applied 가 그 구분이다.
+ * 그날 신청한 학생은 16:50부터, 신청하지 않은 학생은 17:30부터 고른다 (신청한 학생이 먼저 고르게). from 이 그 시각이다.
  */
 function window_(st, date) {
   var dn = dayName_(date);
   var idx = DAYS.indexOf(dn);
-  if (idx < 0) return { open: false, applied: false, why: '오늘(' + dn + '요일)은 야간 자율학습이 없는 날입니다.' };
+  if (idx < 0) return { open: false, applied: false, from: OPEN_FROM, why: '오늘(' + dn + '요일)은 야간 자율학습이 없는 날입니다.' };
   var applied = !!st.d[idx];
+  var from = applied ? OPEN_FROM : OPEN_FROM_EXTRA;
+  var mine = dayText_(st.d);
+  var who = mine ? '오늘(' + dn + '요일)은 신청한 요일이 아닙니다 (신청한 요일: ' + mine + ').' : '야자를 신청하지 않은 학생입니다.';
   var hm = hm_();
   var free = freeUntil_();                     // 시트 메뉴로 시간 제한을 잠시 풀었으면 시각은 따지지 않는다
-  if (!free && hm < OPEN_FROM) return { open: false, applied: applied, why: '자리는 ' + OPEN_FROM + '부터 고를 수 있습니다.' };
-  if (!free && hm > OPEN_TO) return { open: false, applied: applied, why: '오늘 자리 고르기가 끝났습니다 (' + OPEN_TO + '까지).' };
-  if (applied) return { open: true, applied: true, why: '' };
-  var mine = dayText_(st.d);
+  if (!free && hm < from) {
+    return { open: false, applied: applied, from: from, why: applied ? '자리는 ' + from + '부터 고를 수 있습니다.'
+      : who + ' 신청한 학생이 ' + OPEN_FROM + '부터 먼저 고르고, 신청하지 않은 학생은 ' + from + '부터 고를 수 있습니다. ' +
+        '학부모님께 허락을 받았다면 ' + from + '에 「학부모 동의」 를 체크하고 고르세요.' };
+  }
+  if (!free && hm > OPEN_TO) return { open: false, applied: applied, from: from, why: '오늘 자리 고르기가 끝났습니다 (' + OPEN_TO + '까지).' };
+  if (applied) return { open: true, applied: true, from: from, why: '' };
   return {
-    open: true, applied: false,
-    why: (mine ? '오늘(' + dn + '요일)은 신청한 요일이 아닙니다 (신청한 요일: ' + mine + ').' : '야자를 신청하지 않은 학생입니다.') +
-      ' 학부모님께 허락을 받았다면 「학부모 동의」 를 체크하고 자리를 고를 수 있습니다.'
+    open: true, applied: false, from: from,
+    why: who + ' 학부모님께 허락을 받았다면 「학부모 동의」 를 체크하고 자리를 고를 수 있습니다.'
   };
 }
 
@@ -807,21 +844,29 @@ function apiBoard(token, ver) {
     var ro = roster_();
     var v = day.v + '|' + ro.v;
     var rec = day.rows[me.id];
+    var occ = occupy_(day, ro, date);
+    var only = fixedOnly_(me, win, occ);
     var base = {
       ok: true, ver: v, date: date, dayName: dayName_(date), hm: hm_(), open: win.open, why: win.why,
+      from: win.from,                             // 나는 오늘 몇 시부터 고르나 (신청한 날 16:50 · 아니면 17:30)
       mine: rec && rec.seat ? rec.seat : 0,
       changesLeft: MAX_CHANGES - (rec ? rec.ch : 0),
       /* 신청한 날인가 · 신청하지 않은 날이면 오늘 이미 학부모 동의를 체크했는가 · 신청한 요일(없으면 '') */
       applied: win.applied, consented: !!(rec && rec.pc), myDays: dayText_(me.d),
+      /* 지정석 — fixed: 오늘 내 몫으로 맡아 둔 지정석 번호(없으면 0) · fixedOnly: 오늘은 지정석에만 앉는다 */
+      fixed: only ? me.fx : 0, fixedOnly: only,
       free: freeText_()                           // 시간 제한을 잠시 풀었으면 끝나는 시각('HH:mm'), 아니면 ''
     };
     if (ver && ver === v) { base.same = true; return base; }
     var rmap = rosterMap_(ro);
     var seats = {};
-    for (var id in day.rows) {
-      var r = day.rows[id];
-      if (!r.seat || !rmap[id]) continue;
-      seats[r.seat] = id === me.id ? { me: 1, n: me.name } : { n: mask_(rmap[id].name) };
+    for (var no in occ) {
+      var o = occ[no];
+      var st = rmap[o.id];
+      var it = o.id === me.id ? { me: 1, n: me.name } : { n: mask_(st.name) };
+      if (st.fx && st.fx === Number(no)) it.fx = 1;   // 📌 지정석
+      if (o.held) it.held = 1;                       // 지정석을 맡아 두었고 아직 앉았다고 알리지 않음
+      seats[no] = it;
     }
     base.seats = seats;
     return base;
@@ -848,8 +893,17 @@ function apiPick(token, seat, consent) {
       var win = window_(st, date);
       if (!win.open) return fail_(win.why);
       var day = loadDay_(date, true);
-      var owner = seatOwner_(day, seat, rmap);
-      if (owner && owner !== st.id) return fail_(seat + '번은 방금 다른 학생이 고른 자리입니다. 다른 자리를 골라 주세요.', { refresh: true });
+      var occ = occupy_(day, ro, date);
+      var owner = occ[seat];
+      if (owner && owner.id !== st.id) {
+        return fail_(owner.held
+          ? seat + '번은 다른 학생의 지정석입니다. 다른 자리를 골라 주세요.'
+          : seat + '번은 방금 다른 학생이 고른 자리입니다. 다른 자리를 골라 주세요.', { refresh: true });
+      }
+      /* 지정석이 있는 학생은 신청한 날 지정석에만 앉는다 (지정석을 받기 전에 다른 학생이 오늘 그 자리를 먼저 골랐으면 예외) */
+      if (fixedOnly_(st, win, occ) && seat !== st.fx) {
+        return fail_('지정석이 있어 오늘은 ' + st.fx + '번에만 앉을 수 있습니다. 자리를 바꿔야 하면 선생님께 말씀드리세요.', { refresh: true });
+      }
       var isNew = !day.rows[st.id];
       var rec = day.rows[st.id] || newRec_();
       /* 신청하지 않은 날 — 오늘 처음 고를 때 학부모 동의 체크가 있어야 한다 (한 번 체크했으면 자리를 바꿀 때는 다시 묻지 않는다) */
@@ -873,7 +927,7 @@ function apiPick(token, seat, consent) {
       writeRec_(date, st.id, rec, st, '학생');
       saveDay_(date, day);
       log_(st.sid + ' ' + st.name, (before ? '자리 바꾸기' : '자리 고르기') + (win.applied ? '' : ' (신청 안 한 날 · 학부모 동의 체크)'),
-        date + ' ' + (before ? before + '번 → ' : '') + seat + '번');
+        date + ' ' + (before ? before + '번 → ' : '') + seat + '번' + (seat === st.fx ? ' (지정석)' : ''));
       return { ok: true, seat: seat, changesLeft: MAX_CHANGES - rec.ch };
     });
   });
@@ -914,7 +968,7 @@ function tGuard_(token, fn) {
 }
 
 function pubStudent_(s) {
-  return { id: s.id, g: s.g, c: s.c, n: s.n, sid: s.sid, name: s.name, d: s.d, pin: !!s.ph };
+  return { id: s.id, g: s.g, c: s.c, n: s.n, sid: s.sid, name: s.name, d: s.d, pin: !!s.ph, fx: s.fx || 0 };
 }
 
 /** 야자감독 화면 — 그날 신청한 학생 + 기록이 있는 학생 */
@@ -929,6 +983,7 @@ function apiTBoard(token, date, ver) {
     var base = { ok: true, ver: v, date: date, dayName: dayName_(date), today: today_(), hm: hm_(), free: freeText_() };
     if (ver && ver === v) { base.same = true; return base; }
     var idx = DAYS.indexOf(dayName_(date));
+    var occ = occupy_(day, ro, date);
     var list = [];
     ro.list.forEach(function (s) {
       var rec = day.rows[s.id];
@@ -937,6 +992,9 @@ function apiTBoard(token, date, ver) {
       var o = pubStudent_(s);
       o.applied = applied;
       o.seat = rec ? rec.seat : 0;
+      /* 지정석을 맡아 두었고 아직 앉았다고 알리지 않은 학생 — 배치도에는 그 자리에 보이게 한다 */
+      o.held = !o.seat && !!s.fx && !!occ[s.fx] && occ[s.fx].id === s.id && occ[s.fx].held;
+      if (o.held) o.seat = s.fx;
       o.p1 = rec ? rec.p1 : ''; o.p2 = rec ? rec.p2 : '';
       o.memo = rec ? rec.memo : ''; o.ch = rec ? rec.ch : 0; o.at = rec ? rec.at : '';
       o.ex = extra_(rec, applied);                 // 그날 신청하지 않은 기록 (자리를 골랐으면 「미신청 참여」)
@@ -1013,6 +1071,55 @@ function apiTResetPin(token, id) {
       cache_().remove('slf:' + st.sid);
       log_(t.name, 'PIN 초기화', st.sid + ' ' + st.name);
       return { ok: true, msg: st.name + ' 학생의 PIN 을 지웠습니다. 다음에 들어올 때 새로 정합니다.' };
+    });
+  });
+}
+
+/**
+ * 지정석 주기 · 풀기 (seat 가 0 이면 푼다).
+ *   이미 다른 학생의 지정석이면 replace 가 true 일 때만 그 학생의 지정을 풀고 넘긴다.
+ *   야자를 신청한 학생(요일이 있는 학생)에게만 준다 — 지정석은 그 학생이 신청한 요일에만 맡아 두기 때문이다.
+ */
+function apiTSetFixed(token, id, seat, replace) {
+  return tGuard_(token, function (t) {
+    id = str_(id); seat = Number(seat);
+    if (!ID_RE.test(id)) return fail_('학생을 찾을 수 없습니다.');
+    if (!(seat === 0 || (seat >= 1 && seat <= SEAT_MAX && Math.floor(seat) === seat))) return fail_('없는 좌석입니다.');
+    return withLock_(function () {
+      cache_().remove('roster');
+      var ro = roster_(true);
+      var rmap = rosterMap_(ro);
+      var st = rmap[id];
+      if (!st) return fail_('명단에 없는 학생입니다. 화면을 새로 불러와 주세요.');
+      if (seat && !dayText_(st.d)) return fail_('야자를 신청한 학생에게만 지정석을 줄 수 있습니다 (' + st.name + ' 학생은 신청한 요일이 없습니다).');
+      if (seat === st.fx) return { ok: true, same: true, seat: seat };
+      var other = null;
+      if (seat) ro.list.forEach(function (x) { if (x.fx === seat && x.id !== id) other = x; });
+      if (other && replace !== true) {
+        return fail_(seat + '번은 이미 ' + other.sid + ' ' + other.name + ' 학생의 지정석입니다.',
+          { taken: { id: other.id, sid: other.sid, name: other.name } });
+      }
+      var sh = sheet_(SH_ROSTER);
+      /* 예전 판에서 만든 명단 시트면 「지정석」 머리글을 한 번 채운다 */
+      if (!cache_().get('hd:ro')) { ensureHead_(sh, HEAD_ROSTER); cache_().put('hd:ro', '1', SESSION_SEC); }
+      var who = safeCell_(t.name, 30);
+      if (other) sh.getRange(other.r, 13, 1, 3).setValues([[stamp_(), who, '']]);
+      sh.getRange(st.r, 13, 1, 3).setValues([[stamp_(), who, seat || '']]);
+      cache_().remove('roster');
+      /* 지정석을 주기 전에 다른 학생이 오늘 그 자리를 이미 골랐으면 오늘은 그 학생 자리로 둔다 (occupy_ 가 기록을 먼저 본다) */
+      var note = '';
+      if (seat) {
+        var day = loadDay_(today_(), true);
+        for (var rid in day.rows) {
+          if (rid !== id && day.rows[rid].seat === seat && rmap[rid]) {
+            note = '오늘은 이미 ' + rmap[rid].name + ' 학생이 ' + seat + '번에 앉아 있어 오늘은 그대로 두고, 다음 신청일부터 맡아 둡니다.';
+          }
+        }
+      }
+      log_(t.name, seat ? '지정석 주기' : '지정석 풀기', st.sid + ' ' + st.name + ' ' +
+        (seat ? (st.fx ? st.fx + '번 → ' : '') + seat + '번' : st.fx + '번 풀기') +
+        (other ? ' (' + other.sid + ' ' + other.name + ' 학생의 지정을 풂)' : ''));
+      return { ok: true, seat: seat, before: st.fx, freed: other ? other.name : '', note: note };
     });
   });
 }

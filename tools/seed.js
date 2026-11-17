@@ -17,13 +17,17 @@
   }
   function hex(r, n) { var o = ''; for (var i = 0; i < n; i++) o += '0123456789abcdef'.charAt(Math.floor(r() * 16)); return o; }
 
-  /** 보여 줄 계정 셋 — PIN 을 정해 둔 학생 · 처음 들어오는 학생 · 월요일을 신청하지 않은 학생(학부모 동의 체크 체험)
+  /** 보여 줄 계정 넷 — PIN 을 정해 둔 학생 · 처음 들어오는 학생 · 월요일을 신청하지 않은 학생(학부모 동의 체크 체험) · 지정석 학생
       (명단에 없는 학생 체험은 10238 처럼 명단에 없는 학번 — 무작위 학생은 번호를 1~33 에서만 뽑으므로 34~40번은 비어 있다) */
   var DEMO = [
     { g: 1, c: 1, n: 5, name: '김하랑', d: [true, true, true, true], pin: '3141' },
     { g: 2, c: 3, n: 7, name: '이서온', d: [true, true, false, false], pin: '' },
-    { g: 1, c: 3, n: 36, name: '박도담', d: [false, true, true, false], pin: '2718' }
+    { g: 1, c: 3, n: 36, name: '박도담', d: [false, true, true, false], pin: '2718' },
+    /* 📌 지정석(40번)이 있는 학생 — 오늘 아직 앉았다고 알리지 않았다 */
+    { g: 1, c: 2, n: 37, name: '최다온', d: [true, true, true, true], pin: '1618', fx: 40 }
   ];
+  /** 무작위 학생 몇 명에게 줄 지정석 (보여 줄 계정의 40번과 함께 다른 학생은 이 자리를 고르지 않는다) */
+  var FIX = [1, 2, 3, 4, 5, 6, 13, 14];
   /** 야자를 신청하지 않았지만 학부모 동의를 체크하고 참여하려고 스스로 등록한 학생 (요일 없음) */
   var SELF = [{ g: 1, c: 1, n: 34 }, { g: 1, c: 4, n: 35 }, { g: 2, c: 2, n: 36 }, { g: 2, c: 9, n: 34 }];
   var SELF_BY = '학생(처음 등록 · 신청 안 함)';
@@ -52,12 +56,17 @@
         made++;
       }
     });
+    var cand = list.filter(function (s) { return !s.self && DEMO.indexOf(s) < 0; });
+    FIX.forEach(function (no, i) { cand[i * 5].fx = no; });
+    var fixed = {};
+    list.forEach(function (s) { if (s.fx) fixed[s.fx] = 1; });
+    function freeSeats() { var f = []; for (var i = 1; i <= 114; i++) if (!fixed[i]) f.push(i); return f; }
     list.forEach(function (s) {
       s.id = 'S' + hex(r, 10);
       s.sid = api.sidOf_(s.g, s.c, s.n);
       var salt = 'seed' + hex(r, 6) + ':';
       shR.appendRow([s.id, s.g, s.c, s.n, s.sid, s.name].concat(s.d.map(function (b) { return b ? 'O' : ''; }))
-        .concat([s.pin ? api.sha_(salt + s.pin) : '', s.pin ? salt : '', '2026-09-01 09:00:00', s.self ? SELF_BY : '씨앗']));
+        .concat([s.pin ? api.sha_(salt + s.pin) : '', s.pin ? salt : '', '2026-09-01 09:00:00', s.self ? SELF_BY : '씨앗', s.fx || '']));
     });
 
     /* 신청하지 않은 날 학부모 동의를 체크하고 참여한 기록 (스스로 등록한 학생은 자주, 다른 요일 신청 학생은 가끔) */
@@ -76,7 +85,7 @@
       var mon = api.addDays_(monday, back);
       [mon, api.addDays_(mon, 1), api.addDays_(mon, 3), api.addDays_(mon, 4)].forEach(function (date, di) {
         var sup = SUPS[wk * 4 + di];
-        var free = []; for (var i = 1; i <= 114; i++) free.push(i);
+        var free = freeSeats();
         list.forEach(function (s) {
           if (!s.d[di]) {
             if (r() < (s.self ? 0.35 : 0.04)) extraPick(date, s, free, date + ' 17:00:00');
@@ -86,7 +95,7 @@
           if (x < 0.05) return;                                   // 미입실 — 아무 기록도 없음
           if (x < 0.1) { shC.appendRow([date, s.id, s.sid, s.name, s.g, '', '결석', '결석', '', '', 0, date + ' 19:00:00', sup, '신청', '']); return; }
           if (x < 0.14) { shC.appendRow([date, s.id, s.sid, s.name, s.g, '', '사유', '사유', x < 0.12 ? '병원(사전 연락)' : '학교 행사', '', 0, date + ' 17:00:00', sup, '신청', '']); return; }
-          var seat = free.splice(Math.floor(r() * free.length), 1)[0];
+          var seat = s.fx || free.splice(Math.floor(r() * free.length), 1)[0];   // 지정석 학생은 언제나 지정석
           /* 2교시만 사유(조기 귀가) · 1교시만 결석(자리에 없음) 이 드문드문 */
           var p2 = x > 0.97 ? '사유' : '', p1 = x > 0.94 && x <= 0.97 ? '결석' : '';
           var memo = p2 ? '보호자 연락 후 조기 귀가' : (p1 ? '출석 표시했으나 자리에 없음' : '');
@@ -101,12 +110,12 @@
        신청하지 않은 학생 몇몇은 학부모 동의를 체크하고 자리를 골랐다 */
     var ti = ['월', '화', '목', '금'].indexOf(api.dayName_(today));
     if (ti >= 0) {
-      var free2 = []; for (var k = 1; k <= 114; k++) free2.push(k);
+      var free2 = freeSeats();
       list.forEach(function (s, i) {
         if (i < DEMO.length) return;
         if (!s.d[ti]) { if (r() < (s.self ? 0.5 : 0.05)) extraPick(today, s, free2, today + ' 17:30:00'); return; }
-        if (r() < 0.3) return;
-        var seat = free2.splice(Math.floor(r() * free2.length), 1)[0];
+        if (r() < 0.3) return;                                   // 지정석 학생이면 맡아 둔 채 아직 안 앉음(점선)
+        var seat = s.fx || free2.splice(Math.floor(r() * free2.length), 1)[0];
         var y = r();
         var p1 = y < 0.04 ? '결석' : (y < 0.06 ? '사유' : '');
         var memo = p1 === '결석' ? '출석 표시했으나 자리에 없음' : (p1 ? '학교 행사' : '');

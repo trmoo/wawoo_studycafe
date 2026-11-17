@@ -23,7 +23,7 @@ function gateLogin(msg, kind) {
   var form = h('form', { onsubmit: function (e) { e.preventDefault(); doLogin(sid, nm, pin, btn, box); } },
     h('h2', null, '🪑 자리 고르러 들어가기'),
     h('p', { class: 'note' }, '야자 날(월 · 화 · 목 · 금) ' + BOOT_DATA.from + '~' + BOOT_DATA.to + ' 에 오늘 앉을 자리를 고릅니다. ' +
-      '신청하지 않은 날이나 야자를 신청하지 않은 학생도 학부모님께 허락을 받으면 자리를 고를 수 있습니다.'),
+      '신청하지 않은 날이나 야자를 신청하지 않은 학생도 학부모님께 허락을 받으면 ' + BOOT_DATA.fromExtra + '부터 자리를 고를 수 있습니다.'),
     h('label', { class: 'field' }, h('span', null, '학번 (5자리)'), sid),
     h('label', { class: 'field' }, h('span', null, '이름'), nm),
     h('label', { class: 'field' }, h('span', null, 'PIN (숫자 4자리)'), pin),
@@ -128,7 +128,7 @@ function load(quiet) {
       return;
     }
     if (r.same && S.board) {
-      ['open', 'why', 'mine', 'changesLeft', 'hm', 'applied', 'consented', 'myDays', 'free'].forEach(function (k) { S.board[k] = r[k]; });
+      ['open', 'why', 'mine', 'changesLeft', 'hm', 'applied', 'consented', 'myDays', 'free', 'from', 'fixed', 'fixedOnly'].forEach(function (k) { S.board[k] = r[k]; });
     } else {
       S.board = r;
     }
@@ -145,32 +145,43 @@ function render() {
   $('cntTaken').textContent = taken;
   $('cntFree').textContent = BOOT_DATA.seatMax - taken;
   /* 선생님이 시트 메뉴로 시간 제한을 잠시 풀었으면 그 사실과 끝나는 시각을 보인다 */
+  /* 그날 신청한 학생은 16:50부터, 신청하지 않은 학생은 17:30부터 (b.from) */
   $('todayPill').textContent = dateLabel(b.date) + ' (' + b.dayName + ') · ' +
-    (b.free ? '⏱ 시간 제한 해제 중 (' + b.free + '까지)' : '자리 고르기 ' + BOOT_DATA.from + '~' + BOOT_DATA.to);
+    (b.free ? '⏱ 시간 제한 해제 중 (' + b.free + '까지)' : '자리 고르기 ' + (b.from || BOOT_DATA.from) + '~' + BOOT_DATA.to);
   $('todayPill').classList.toggle('warn', !!b.free);
-  fill($('mineText'), b.mine ? [S.name + ' — 오늘 내 자리: ', h('b', null, '★ ' + b.mine + '번')] : S.name + ' — 아직 오늘 자리를 고르지 않았습니다');
-  $('whyText').textContent = b.open
-    ? (b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 오늘 바꿀 수 있는 횟수: ' + Math.max(0, b.changesLeft) + '번'
-      : (needConsent() ? '아래 「학부모 동의」 를 체크한 뒤 빈자리를 눌러 오늘 앉을 자리를 고르세요.' : '빈자리를 눌러 오늘 앉을 자리를 고르세요.'))
-    : b.why;
+  /* 지정석 — 신청한 날에는 지정석을 맡아 두었으니 와서 그 자리를 눌러 「앉았어요」 를 알린다 */
+  var fixedWait = b.fixedOnly && b.fixed && b.mine !== b.fixed;
+  fill($('mineText'), b.mine
+    ? [S.name + ' — 오늘 내 자리: ', h('b', null, '★ ' + b.mine + '번'), b.mine === b.fixed ? ' (📌 지정석)' : '']
+    : (b.fixed ? [S.name + ' — 내 지정석: ', h('b', null, '📌 ' + b.fixed + '번'), ' (아직 앉았다고 알리지 않음)'] : S.name + ' — 아직 오늘 자리를 고르지 않았습니다'));
+  $('whyText').textContent = !b.open ? b.why
+    : fixedWait ? '지정석이 있어 오늘은 ' + b.fixed + '번에만 앉습니다. 자리에 와서 배치도의 ' + b.fixed + '번을 눌러 「앉았어요」 를 알려 주세요.'
+    : b.fixedOnly ? '지정석에 앉았습니다. 지정석이 있는 학생은 다른 자리로 바꿀 수 없습니다 — 바꿔야 하면 선생님께 말씀드리세요.'
+    : b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 오늘 바꿀 수 있는 횟수: ' + Math.max(0, b.changesLeft) + '번'
+    : needConsent() ? '아래 「학부모 동의」 를 체크한 뒤 빈자리를 눌러 오늘 앉을 자리를 고르세요.' : '빈자리를 눌러 오늘 앉을 자리를 고르세요.';
   renderConsent(b);
   drawMap($('mapbox'), function (no) {
     var s = b.seats ? b.seats[no] : null;
     if (s) {
+      /* 내 지정석(아직 안 알림)만 누를 수 있다 */
+      var tap = s.me && s.held && b.open;
       return {
-        cls: 'taken' + (s.me ? ' mine' : ''),
-        title: s.me ? no + '번 · 내 자리' : no + '번 · 다른 학생',
-        kids: [h('span', { class: 'no' }, no), nameSpan(s.n)]
+        cls: 'taken' + (s.me ? ' mine' : '') + (s.held ? ' held' : '') + (tap ? ' pickable' : ''),
+        title: no + '번 · ' + (s.me ? (s.fx ? '내 지정석' + (s.held ? ' — 눌러서 「앉았어요」 알리기' : '') : '내 자리') : (s.fx ? '다른 학생의 지정석' : '다른 학생')),
+        kids: [h('span', { class: 'no' }, s.fx ? h('span', { class: 'pin' }, '📌') : null, no), nameSpan(s.n)],
+        onclick: tap ? function () { pick(no); } : null
       };
     }
+    var can = b.open && !b.fixedOnly;
     return {
-      cls: 'empty' + (b.open ? ' pickable' : ''),
+      cls: 'empty' + (can ? ' pickable' : ''),
       title: no + '번 · 빈자리',
-      onclick: b.open ? function () { pick(no); } : null
+      onclick: can ? function () { pick(no); } : null
     };
   });
-  /* 휴대폰 「크게 보기」 — 처음 한 번, 내 자리가 화면 가운데 오게 */
-  if (b.mine && S.scrolledTo !== b.mine) { scrollToSeat($('mapbox'), b.mine); S.scrolledTo = b.mine; }
+  /* 휴대폰 「크게 보기」 — 처음 한 번, 내 자리(또는 내 지정석)가 화면 가운데 오게 */
+  var focus = b.mine || b.fixed;
+  if (focus && S.scrolledTo !== focus) { scrollToSeat($('mapbox'), focus); S.scrolledTo = focus; }
 }
 
 /** 오늘 신청하지 않은 날이고, 아직 학부모 동의를 체크하고 자리를 고른 적이 없는가 */
@@ -196,7 +207,8 @@ function renderConsent(b) {
   var chk = h('input', { type: 'checkbox', id: 'consentChk', checked: S.consent,
     onchange: function () { S.consent = chk.checked; box.firstChild.classList.toggle('on', chk.checked); } });
   fill(box, h('div', { class: 'consent' + (S.consent ? ' on' : '') }, h('b', null, head),
-    h('div', null, '신청하지 않은 날에도 학부모님께 허락을 받았다면 자리를 골라 자습할 수 있습니다. 참여하면 1 · 2교시 모두 참여합니다.'),
+    h('div', null, '신청하지 않은 날에도 학부모님께 허락을 받았다면 ' + (b.from || BOOT_DATA.fromExtra) + '부터 자리를 골라 자습할 수 있습니다 ' +
+      '(신청한 학생이 ' + BOOT_DATA.from + '부터 먼저 고릅니다). 참여하면 1 · 2교시 모두 참여합니다.'),
     h('label', { class: 'check big' }, chk, h('span', null, '오늘 야간 자율학습 참여를 학부모님께 허락받았습니다'))));
 }
 
@@ -211,10 +223,13 @@ function pick(no) {
     if (c) c.parentNode.scrollIntoView({ block: 'center' });
     return;
   }
-  var text = b.mine
+  var toFixed = b.fixedOnly && no === b.fixed;
+  var text = toFixed && !b.mine
+    ? '지금 ' + no + '번 지정석에 앉았나요? 「앉았어요」 를 누르면 감독 선생님 화면에 오늘 내 자리로 보입니다.'
+    : b.mine
     ? b.mine + '번에서 ' + no + '번으로 자리를 바꿀까요? 바꾸면 오늘 남은 바꾸기 횟수가 ' + Math.max(0, b.changesLeft - 1) + '번이 됩니다.'
     : no + '번 자리로 정할까요?' + (nc ? ' 오늘은 신청하지 않은 날이라 「학부모 동의」 체크와 함께 감독 선생님 화면에 「미신청 참여」 로 보입니다. 1 · 2교시 모두 참여합니다.' : '');
-  ask(no + '번 자리', text, '네, 이 자리로').then(function (yes) {
+  ask(no + (toFixed ? '번 지정석' : '번 자리'), text, toFixed && !b.mine ? '네, 앉았어요' : '네, 이 자리로').then(function (yes) {
     if (!yes) return;
     S.busy = true;
     call('apiPick', [S.token, no, nc ? S.consent === true : false]).then(function (r) {
