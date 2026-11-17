@@ -128,7 +128,7 @@ function load(quiet) {
       return;
     }
     if (r.same && S.board) {
-      ['open', 'why', 'mine', 'changesLeft', 'hm', 'applied', 'consented', 'myDays'].forEach(function (k) { S.board[k] = r[k]; });
+      ['open', 'why', 'mine', 'changesLeft', 'hm', 'applied', 'consented', 'myDays', 'free'].forEach(function (k) { S.board[k] = r[k]; });
     } else {
       S.board = r;
     }
@@ -144,7 +144,10 @@ function render() {
   var taken = Object.keys(b.seats || {}).length;
   $('cntTaken').textContent = taken;
   $('cntFree').textContent = BOOT_DATA.seatMax - taken;
-  $('todayPill').textContent = dateLabel(b.date) + ' (' + b.dayName + ') · 자리 고르기 ' + BOOT_DATA.from + '~' + BOOT_DATA.to;
+  /* 선생님이 시트 메뉴로 시간 제한을 잠시 풀었으면 그 사실과 끝나는 시각을 보인다 */
+  $('todayPill').textContent = dateLabel(b.date) + ' (' + b.dayName + ') · ' +
+    (b.free ? '⏱ 시간 제한 해제 중 (' + b.free + '까지)' : '자리 고르기 ' + BOOT_DATA.from + '~' + BOOT_DATA.to);
+  $('todayPill').classList.toggle('warn', !!b.free);
   fill($('mineText'), b.mine ? [S.name + ' — 오늘 내 자리: ', h('b', null, '★ ' + b.mine + '번')] : S.name + ' — 아직 오늘 자리를 고르지 않았습니다');
   $('whyText').textContent = b.open
     ? (b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 오늘 바꿀 수 있는 횟수: ' + Math.max(0, b.changesLeft) + '번'

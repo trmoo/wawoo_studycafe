@@ -102,6 +102,9 @@ function onOpen() {
     .addSeparator()
     .addItem('화면이 시트와 다를 때 — 캐시 비우기', 'menuClearCache')
     .addItem('웹앱 주소 보기', 'menuUrl')
+    .addSeparator()
+    .addItem('⏱ 시간 제한 잠시 풀기 (시험해 볼 때)', 'menuFreeOn')
+    .addItem('⏱ 시간 제한 다시 켜기', 'menuFreeOff')
     .addToUi();
 }
 
@@ -170,6 +173,69 @@ function menuNormalize() {
 function menuClearCache() {
   clearCaches_();
   try { SpreadsheetApp.getUi().alert('캐시를 비웠습니다. 화면이 다음 갱신 때 시트에서 다시 읽습니다.'); } catch (e) { /* 편집기 실행 */ }
+}
+
+/* ── 시간 제한 잠시 풀기 (시험해 볼 때) ──────────────────────
+   정한 시간 동안 16:50 전 · 21:30 뒤에도 학생이 자리를 고를 수 있다. 그 시각이 지나면 저절로 다시 잠긴다.
+   요일 제한(월 화 목 금)과 학부모 동의 · 하루 자리 하나 · 바꾸기 3번은 그대로다.
+   ⚠ 시트 메뉴로만 켠다 — 교사 화면에 단추를 두면 교사 비밀번호를 아는 누구나 풀 수 있게 된다.
+   학생이 20초마다 읽으므로 스크립트 속성을 매번 읽지 않고 캐시에 둔다(속성 읽기는 하루 한도가 있다). */
+var FREE_MAX_H = 12;
+
+/** 풀린 동안이면 끝나는 시각(밀리초), 아니면 0 */
+function freeUntil_() {
+  var c = cache_().get('free');
+  var v;
+  if (c) v = Number(c) || 0;
+  else {
+    v = Number(PropertiesService.getScriptProperties().getProperty('FREE_UNTIL')) || 0;
+    try { cache_().put('free', String(v), CACHE_SEC); } catch (e) { /* 캐시 없이 간다 */ }
+  }
+  return v > CLOCK.now().getTime() ? v : 0;
+}
+/** 화면에 보일 끝나는 시각 — 풀려 있지 않으면 '' */
+function freeText_() {
+  var v = freeUntil_();
+  if (!v) return '';
+  var d = new Date(v);
+  if (fmt_(d, 'yyyy-MM-dd') === today_()) return fmt_(d, 'HH:mm');
+  return Number(fmt_(d, 'MM')) + '월 ' + Number(fmt_(d, 'dd')) + '일 ' + fmt_(d, 'HH:mm');   // 자정을 넘기면 날짜까지
+}
+/** hours 시간 동안 푼다. 0 이면 다시 잠근다. 끝나는 시각(밀리초)을 돌려준다 */
+function setFree_(hours) {
+  var p = PropertiesService.getScriptProperties();
+  var until = hours > 0 ? CLOCK.now().getTime() + hours * 3600000 : 0;
+  if (until) p.setProperty('FREE_UNTIL', String(until)); else p.deleteProperty('FREE_UNTIL');
+  try { cache_().put('free', String(until), CACHE_SEC); } catch (e) { cache_().remove('free'); }
+  return until;
+}
+
+function menuFreeOn() {
+  var ui = SpreadsheetApp.getUi();
+  var a = ui.prompt('⏱ 시간 제한 잠시 풀기',
+    '몇 시간 동안 풀까요? (1~' + FREE_MAX_H + ', 비워 두면 1시간)\n' +
+    '그동안은 ' + OPEN_FROM + ' 전이나 ' + OPEN_TO + ' 뒤에도 학생이 자리를 고를 수 있습니다. 시간이 지나면 저절로 다시 잠깁니다.\n' +
+    '요일(월 화 목 금) 제한과 학부모 동의는 그대로입니다.', ui.ButtonSet.OK_CANCEL);
+  if (a.getSelectedButton() !== ui.Button.OK) return false;
+  var t = str_(a.getResponseText());
+  var h = t === '' ? 1 : Number(t);
+  if (!(h >= 1 && h <= FREE_MAX_H) || Math.floor(h) !== h) {
+    ui.alert('1~' + FREE_MAX_H + ' 사이의 정수로 적어 주세요. 풀지 않았습니다.');
+    return false;
+  }
+  setFree_(h);
+  log_('시트 메뉴', '시간 제한 풀기', h + '시간 (' + freeText_() + '까지)');
+  ui.alert('⏱ ' + freeText_() + '까지 시간 제한을 풀었습니다. 학생 · 교사 화면에 「시간 제한 해제 중」 이 보입니다.\n' +
+    '시험해 보며 고른 자리는 시트 「기록」 에 남으니, 끝나면 교사 화면에서 [자리 빼기] 하거나 그 줄을 지워 주세요.\n' +
+    '일찍 끝내려면 메뉴 「⏱ 시간 제한 다시 켜기」.');
+  return true;
+}
+
+function menuFreeOff() {
+  setFree_(0);
+  log_('시트 메뉴', '시간 제한 다시 켜기', '');
+  try { SpreadsheetApp.getUi().alert('시간 제한을 다시 켰습니다 (' + OPEN_FROM + '~' + OPEN_TO + ').'); } catch (e) { /* 편집기 실행 */ }
+  return true;
 }
 
 function menuUrl() {
@@ -298,6 +364,7 @@ function clearCaches_() {
   var c = cache_();
   c.remove('roster');
   c.remove('sup');
+  c.remove('free');
   var t = today_();
   for (var i = -7; i <= 7; i++) c.remove('day:' + addDays_(t, i));
 }
@@ -638,8 +705,9 @@ function window_(st, date) {
   if (idx < 0) return { open: false, applied: false, why: '오늘(' + dn + '요일)은 야간 자율학습이 없는 날입니다.' };
   var applied = !!st.d[idx];
   var hm = hm_();
-  if (hm < OPEN_FROM) return { open: false, applied: applied, why: '자리는 ' + OPEN_FROM + '부터 고를 수 있습니다.' };
-  if (hm > OPEN_TO) return { open: false, applied: applied, why: '오늘 자리 고르기가 끝났습니다 (' + OPEN_TO + '까지).' };
+  var free = freeUntil_();                     // 시트 메뉴로 시간 제한을 잠시 풀었으면 시각은 따지지 않는다
+  if (!free && hm < OPEN_FROM) return { open: false, applied: applied, why: '자리는 ' + OPEN_FROM + '부터 고를 수 있습니다.' };
+  if (!free && hm > OPEN_TO) return { open: false, applied: applied, why: '오늘 자리 고르기가 끝났습니다 (' + OPEN_TO + '까지).' };
   if (applied) return { open: true, applied: true, why: '' };
   var mine = dayText_(st.d);
   return {
@@ -744,7 +812,8 @@ function apiBoard(token, ver) {
       mine: rec && rec.seat ? rec.seat : 0,
       changesLeft: MAX_CHANGES - (rec ? rec.ch : 0),
       /* 신청한 날인가 · 신청하지 않은 날이면 오늘 이미 학부모 동의를 체크했는가 · 신청한 요일(없으면 '') */
-      applied: win.applied, consented: !!(rec && rec.pc), myDays: dayText_(me.d)
+      applied: win.applied, consented: !!(rec && rec.pc), myDays: dayText_(me.d),
+      free: freeText_()                           // 시간 제한을 잠시 풀었으면 끝나는 시각('HH:mm'), 아니면 ''
     };
     if (ver && ver === v) { base.same = true; return base; }
     var rmap = rosterMap_(ro);
@@ -857,7 +926,7 @@ function apiTBoard(token, date, ver) {
     var ro = roster_();
     var sup = supsOn_(date);
     var v = day.v + '|' + ro.v + '|' + sup.join(',');
-    var base = { ok: true, ver: v, date: date, dayName: dayName_(date), today: today_(), hm: hm_() };
+    var base = { ok: true, ver: v, date: date, dayName: dayName_(date), today: today_(), hm: hm_(), free: freeText_() };
     if (ver && ver === v) { base.same = true; return base; }
     var idx = DAYS.indexOf(dayName_(date));
     var list = [];

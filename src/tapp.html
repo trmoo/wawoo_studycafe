@@ -132,6 +132,8 @@ function buildSup() {
     h('div', { class: 'pillrow' },
       h('span', { class: 'pill' }, '배정 ', h('b', { id: 'cTaken' }, '0'), ' 석 · 빈자리 ', h('b', { id: 'cFree' }, '0'), ' 석'),
       h('span', { class: 'pill' }, '갱신 ', h('span', { id: 'updated' }, '-')),
+      /* 시트 메뉴로 시간 제한을 잠시 풀었을 때만 보인다 */
+      h('span', { class: 'pill warn hidden', id: 'freePill' }),
       /* 찾기 칸은 줄 맨 끝 — 휴대폰에서 줄이 접혀도 결과 상자가 바로 밑에 온다 */
       h('span', { class: 'pill search' }, search)),
     /* 찾기 결과 — 검색창 바로 밑 (찾는 글이 있을 때만 보인다) */
@@ -187,6 +189,11 @@ function loadBoard(quiet) {
     if (!(r.same && T.board)) T.board = r;
     T.ver = r.ver;
     if ($('updated')) $('updated').textContent = nowText();
+    var fp = $('freePill');
+    if (fp) {
+      fp.textContent = r.free ? '⏱ 시간 제한 해제 중 — ' + r.free + '까지 (시트 메뉴에서 다시 켜기)' : '';
+      fp.classList.toggle('hidden', !r.free);
+    }
     if (T.tab === 'sup') { renderMap(); renderMiss(); renderFind(); }
   });
 }

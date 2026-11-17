@@ -219,3 +219,76 @@ describe('출석부 · 우리 반 출석 기록 — 미신청 참여', () => {
     eq(r.students.length, 4);
   });
 });
+
+describe('⏱ 시간 제한 잠시 풀기 (시트 메뉴)', () => {
+  /* 「시트 준비하기」 가 묻는 교사 비밀번호 창에 'x' 를 넣어 건너뛰고(6자 미만), 그다음 창이 시간 풀기의 「몇 시간」 이다 */
+  function setup(answer) {
+    const env = freshServer({ promptAnswers: ['x', answer] });
+    const tk = teacher(env.api);
+    const s = student(env.api, tk);
+    return Object.assign(env, { tk, s });
+  }
+  test('풀면 16:50 전에도 고르고, 정한 시간이 지나면 저절로 다시 잠긴다', () => {
+    const { api, gas, s } = setup('2');
+    at(api, '2026-11-16 14:00');
+    ok(!api.apiPick(s.token, 10).ok, '풀기 전에는 막힌다');
+    ok(api.menuFreeOn());
+    eq(api.apiBoard(s.token).free, '16:00');
+    ok(api.apiPick(s.token, 10).ok, '풀린 동안은 고른다');
+    ok(gas.alerts.some((a) => a.indexOf('16:00까지') >= 0), gas.alerts.join(' / '));
+    at(api, '2026-11-16 16:01');
+    const b = api.apiBoard(s.token);
+    ok(!b.open && b.free === '', '두 시간이 지나면 다시 잠긴다');
+    ok(rows(gas, '변경 기록').some((x) => String(x[2]).indexOf('시간 제한 풀기') >= 0));
+  });
+  test('비워 두면 1시간, 엉뚱한 값은 풀지 않는다', () => {
+    const a = setup('');
+    at(a.api, '2026-11-16 10:00');
+    ok(a.api.menuFreeOn());
+    eq(a.api.freeText_(), '11:00');
+    ['0', '13', '1.5', '두시간', '-3'].forEach((v) => {
+      const b = setup(v);
+      at(b.api, '2026-11-16 10:00');
+      ok(!b.api.menuFreeOn(), v);
+      eq(b.api.freeText_(), '', v + ' 은(는) 풀지 않는다');
+    });
+  });
+  test('「다시 켜기」 로 바로 잠근다 · 요일 제한과 학부모 동의는 그대로', () => {
+    const { api, tk } = setup('12');
+    at(api, '2026-11-16 09:00');
+    api.menuFreeOn();
+    const b = student(api, tk, { n: 6, name: '이바다', d: [false, true, true, false] });
+    const r = api.apiPick(b.token, 20);
+    ok(!r.ok && r.needConsent, '신청하지 않은 날은 풀려 있어도 동의 체크가 있어야 한다');
+    at(api, '2026-11-18 10:00');
+    ok(!api.apiPick(b.token, 20, true).ok, '수요일은 풀려 있어도 안 된다');
+    at(api, '2026-11-16 10:00');
+    ok(api.menuFreeOff());
+    ok(!api.apiPick(b.token, 20, true).ok, '다시 잠근 뒤에는 막힌다');
+    eq(api.apiTBoard(tk, '2026-11-16').free, '');
+  });
+  test('교사 화면에도 풀린 사실이 보이고, 자정을 넘기면 날짜까지 적는다', () => {
+    const { api, tk } = setup('3');
+    at(api, '2026-11-16 22:30');
+    api.menuFreeOn();
+    eq(api.apiTBoard(tk, '2026-11-16').free, '11월 17일 01:30');
+  });
+  test('학생이 20초마다 읽어도 스크립트 속성은 한 번만 읽는다(캐시)', () => {
+    const { api, gas, s } = setup('1');
+    api.menuFreeOn();
+    /* 가짜 시트는 getScriptProperties() 를 부를 때마다 새 상자를 주므로, 그 함수 자체를 감싼다 */
+    let reads = 0;
+    const getStore = gas.PropertiesService.getScriptProperties;
+    gas.PropertiesService.getScriptProperties = function () {
+      const store = getStore();
+      const orig = store.getProperty;
+      store.getProperty = function (k) { if (k === 'FREE_UNTIL') reads++; return orig.call(this, k); };
+      return store;
+    };
+    for (let i = 0; i < 5; i++) api.apiBoard(s.token);
+    eq(reads, 0, '켤 때 캐시에 넣어 두었다');
+    delete gas.cache.free;
+    for (let i = 0; i < 5; i++) api.apiBoard(s.token);
+    eq(reads, 1, '캐시가 비면 한 번 읽고 다시 담는다');
+  });
+});
