@@ -11,11 +11,19 @@
 
 © 2026 티쳐무 · 모든 권리 보유 — 이용 범위는 [LICENSE](LICENSE).
 
+## 바로가기
+
+**https://trmoo.github.io/wawoo_studycafe/** — 와우고에서 실제로 쓰는 웹 앱의 🧑‍🎓 학생 화면 · 🧑‍🏫 교사 화면으로 보내 주는 첫 화면입니다.
+학생에게는 이 주소 하나만 알려 주면 됩니다(휴대폰 홈 화면에 추가해 두면 편합니다). 교사 화면은 교사용 비밀번호가 있어야 들어갑니다.
+
+다른 학교에서 쓰신다면 아래 「설치」 대로 배포한 뒤 `site/index.html` 의 두 링크(`goStudent` · `goTeacher`)만 새 배포 주소로 바꾸면 됩니다.
+교사 링크는 학생 주소 끝에 `?page=teacher` 를 붙인 것이어야 하고, `npm run site` 가 두 주소의 꼴과 안내 글의 시각(16:50 · 17:30 · 21:30)이 `Code.gs` 와 맞는지 확인합니다.
+
 ## 체험해 보기
 
 설치 없이 눌러 볼 수 있는 체험판입니다. 브라우저 안의 가짜 시트에서 진짜 서버 코드가 돌아가며, 아무 데도 저장되지 않습니다(학생 이름은 모두 지어낸 것).
 
-- **안내** — https://trmoo.github.io/wawoo_studycafe/
+- **체험 안내** — https://trmoo.github.io/wawoo_studycafe/demo.html
 - **🧑‍🎓 학생 체험** — https://trmoo.github.io/wawoo_studycafe/student.html — 학번 `10105` · 이름 `김하랑` · PIN `3141` (처음 들어오는 학생: `20307` · `이서온`)
   - 월요일을 신청하지 않은 학생(학부모 동의 체크): `10336` · `박도담` · PIN `2718`
   - 📌 지정석(40번)이 있는 학생: `10237` · `최다온` · PIN `1618`
@@ -102,10 +110,10 @@
 | `npm test` | 가짜 시트 위에서 진짜 `Code.gs` 를 돌리는 시험 + 좌석 배치 시험 |
 | `npm run check` | 문법 · 끼워 넣기 · 앱스 스크립트 함정 · 서버 함수 · 저작권 점검 |
 | `npm run preview` | `dist/preview.html`(학생) · `dist/preview-teacher.html`(교사) — 배포 없이 확인 |
-| `npm run site` | `dist/site/` — 깃허브 Pages 체험 페이지(안내 · 학생 · 교사) |
+| `npm run site` | `dist/site/` — 깃허브 Pages: 첫 화면(실제 앱 바로가기, `site/index.html`) · 체험 안내 · 학생 · 교사 체험 |
 | `npm run pack` | `dist/appsscript/` — 편집기에 붙여 넣을 파일 |
 | `npm run build` | 위 다섯 가지를 차례로 |
 
-푸시하면 `.github/workflows/deploy.yml` 이 점검 · 시험 뒤 체험 페이지를 Pages 에 올립니다.
+푸시하면 `.github/workflows/deploy.yml` 이 점검 · 시험 뒤 바로가기와 체험 페이지를 Pages 에 올립니다.
 
 의존성은 없습니다(node 만 있으면 됩니다).

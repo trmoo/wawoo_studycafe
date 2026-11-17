@@ -2,7 +2,8 @@
  * 깃허브 Pages 체험 페이지 만들기 — 배포 없이 누구나 눌러 볼 수 있는 학생 · 교사 체험판
  * © 2026 티쳐무 · 모든 권리 보유
  *
- *   node tools/site.js   →   dist/site/index.html (안내) · student.html (학생 체험) · teacher.html (교사 체험)
+ *   node tools/site.js   →   dist/site/index.html (실제 앱 바로가기 — site/index.html 을 그대로 옮긴다)
+ *                            · demo.html (체험 안내) · student.html (학생 체험) · teacher.html (교사 체험)
  *
  * 체험판은 미리보기와 같다 — 브라우저 안의 가짜 시트 위에서 진짜 Code.gs 가 돈다.
  * 아무 데도 보내거나 저장하지 않고, 학생 이름은 모두 지어낸 것이다.
@@ -24,12 +25,12 @@ const a = build('student', { out: path.join(OUT, 'student.html'),
   notice: N + '학생 <b>10105 김하랑 / PIN 3141</b> · 처음 들어오는 학생 <b>20307 이서온</b>(PIN 을 새로 정함) · ' +
     '월요일을 신청하지 않은 학생 <b>10336 박도담 / PIN 2718</b>(학부모 동의 체크) · 📌 지정석 학생 <b>10237 최다온 / PIN 1618</b> · ' +
     '야자 명단에 없는 학생 <b>10238</b> + 아무 이름 · ' +
-    '<a href="teacher.html">교사 체험</a> · <a href="./">안내</a>' });
+    '<a href="teacher.html">교사 체험</a> · <a href="demo.html">체험 안내</a>' });
 const b = build('teacher', { out: path.join(OUT, 'teacher.html'),
   notice: N + '교사 이름은 아무 한글 이름(예: 김감독) · 체험용 비밀번호 <b>' + DEMO_PW + '</b> · ' +
-    '<a href="student.html">학생 체험</a> · <a href="./">안내</a>' });
+    '<a href="student.html">학생 체험</a> · <a href="demo.html">체험 안내</a>' });
 
-const index = `<!DOCTYPE html>
+const demo = `<!DOCTYPE html>
 <!--
   1·2학년 자습실 좌석배치도 — 체험 안내
   © 2026 티쳐무 · 모든 권리 보유 (오픈소스 라이선스 없음)
@@ -111,11 +112,29 @@ const index = `<!DOCTYPE html>
     <p class="note">저장소: <a href="${REPO}">${REPO.replace('https:' + '//', '')}</a></p>
   </div>
 
+  <p class="note" style="text-align:center"><a href="./">← 첫 화면(실제 앱 바로가기)</a></p>
   <footer>© 2026 티쳐무 · 모든 권리 보유. 학교 수업 · 학급 운영 목적으로만 이용해 주세요. 오픈소스 라이선스를 붙이지 않았습니다.</footer>
 </div>
 </body>
 </html>
 `;
-fs.writeFileSync(path.join(OUT, 'index.html'), index, 'utf8');
+fs.writeFileSync(path.join(OUT, 'demo.html'), demo, 'utf8');
+
+/* 첫 화면 = 실제 앱 바로가기. 배포 주소와 시각이 어긋나면 만들지 않는다. */
+const launch = fs.readFileSync(path.join(__dirname, '..', 'site', 'index.html'), 'utf8');
+const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
+const EXEC = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]{20,}\/exec$/;
+function fail(msg) { console.error('✖ site/index.html — ' + msg); process.exit(1); }
+const stu = (launch.match(/id="goStudent" href="([^"]+)"/) || [])[1];
+const tch = (launch.match(/id="goTeacher" href="([^"]+)"/) || [])[1];
+if (!stu || !EXEC.test(stu)) fail('학생 링크가 앱스 스크립트 배포 주소(…/exec) 꼴이 아닙니다: ' + stu);
+if (tch !== stu + '?page=teacher') fail('교사 링크는 학생 주소 + ?page=teacher 여야 합니다: ' + tch);
+['OPEN_FROM', 'OPEN_FROM_EXTRA', 'OPEN_TO'].forEach((k) => {
+  const v = (code.match(new RegExp('var ' + k + " = '([0-9:]+)'")) || [])[1];
+  if (!v) fail('Code.gs 에서 ' + k + ' 를 찾지 못했습니다.');
+  if (launch.indexOf(v) < 0) fail('Code.gs 의 ' + k + ' (' + v + ') 가 안내 글에 없습니다 — 시각을 맞춰 주세요.');
+});
+if (launch.indexOf('티쳐무') < 0) fail('저작권 표시가 없습니다.');
+fs.writeFileSync(path.join(OUT, 'index.html'), launch, 'utf8');
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '', 'utf8');
-console.log('만들었습니다 → dist/site/  (index · student ' + a.kb + 'KB · teacher ' + b.kb + 'KB)');
+console.log('만들었습니다 → dist/site/  (index 바로가기 · demo 안내 · student ' + a.kb + 'KB · teacher ' + b.kb + 'KB)');
