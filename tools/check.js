@@ -114,7 +114,13 @@ files.forEach((f) => {
   if (f === 'appsscript.json') return;
   if (read(f).indexOf('티쳐무') < 0) bad('⑦ ' + f + ' 에 저작권 표시가 없습니다.');
 });
-['index.html', 'teacher.html'].forEach((f) => { if (!/<footer>[\s\S]*티쳐무[\s\S]*<\/footer>/.test(read(f))) bad('⑦ ' + f + ' 화면 푸터에 저작권 표시가 없습니다.'); });
+/* 화면 푸터에는 저작권 표시를 두지 않는다 — 교내 공용 도구라서 (2026-11-17 사용자 지시). 머리 주석 · LICENSE · README 에는 남긴다.
+   푸터 자체는 있어야 한다 — preview.js 가 체험판 안내 띠를 <footer> 앞에 끼워 넣는다. */
+['index.html', 'teacher.html'].forEach((f) => {
+  const foot = (read(f).match(/<footer>[\s\S]*?<\/footer>/) || [''])[0];
+  if (!foot) bad('⑦ ' + f + ' 에 화면 푸터(<footer>)가 없습니다.');
+  else if (/티쳐무|모든 권리 보유/.test(foot)) bad('⑦ ' + f + ' 화면 푸터에 저작권 표시가 있습니다 — 교내 공용이라 빼기로 했습니다.');
+});
 
 /* ⑧ 비밀번호 — 공개 저장소라 코드에는 원문도 해시도 두지 않는다.
    (짧은 비밀번호의 해시는 금방 거꾸로 풀리므로 해시도 안 된다. 실제 비밀번호는 시트 메뉴로 정해 스크립트 속성에만 둔다)

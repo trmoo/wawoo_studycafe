@@ -138,7 +138,10 @@ if (href('goTeacher') !== 'app/teacher.html') fail('교사 단추(goTeacher)는 
   if (!v) fail('Code.gs 에서 ' + k + ' 를 찾지 못했습니다.');
   if (launch.indexOf(v) < 0) fail('Code.gs 의 ' + k + ' (' + v + ') 가 안내 글에 없습니다 — 시각을 맞춰 주세요.');
 });
-if (launch.indexOf('티쳐무') < 0) fail('저작권 표시가 없습니다.');
+/* 첫 화면도 교내에서 함께 쓰는 곳이라 푸터에 저작권 표시를 두지 않는다 (2026-11-17 사용자 지시) */
+const launchFoot = (launch.match(/<footer>[\s\S]*?<\/footer>/) || [''])[0];
+if (!launchFoot) fail('화면 푸터(<footer>)가 없습니다.');
+if (/티쳐무|모든 권리 보유/.test(launchFoot)) fail('첫 화면 푸터에 저작권 표시가 있습니다 — 교내 공용이라 빼기로 했습니다.');
 fs.writeFileSync(path.join(OUT, 'index.html'), launch, 'utf8');
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '', 'utf8');
 
