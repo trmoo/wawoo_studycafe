@@ -31,7 +31,7 @@ var SEAT_MAX = 114;
 var OPEN_FROM = '16:50';                   // 학생이 자리를 고를 수 있는 시간 (그날 신청한 학생)
 var OPEN_FROM_EXTRA = '17:30';             // 신청하지 않은 날 · 야자를 신청하지 않은 학생은 신청한 학생이 먼저 고른 뒤에 (2026-11-17)
 var OPEN_TO = '21:30';
-var MAX_CHANGES = 3;                       // 하루에 자리를 바꿀 수 있는 횟수 (처음 고르기는 세지 않는다)
+var MAX_CHANGES = 1;                       // 하루에 자리를 바꿀 수 있는 횟수 (처음 고르기는 세지 않는다. 2026-11-20 3 → 1)
 var MIN_DAYS = 2;                          // 신청 요일은 이틀 이상
 var STATUSES = ['출석', '결석', '사유'];          // 2026-11-16 단순하게 셋만 (지각 · 조퇴 · 자리비움은 뺐다 — 필요하면 사유 + 메모)
 var CLASS_MAX = 12;
@@ -211,7 +211,7 @@ function menuClearCache() {
 
 /* ── 시간 제한 잠시 풀기 (시험해 볼 때) ──────────────────────
    정한 시간 동안 16:50 전 · 21:30 뒤에도 학생이 자리를 고를 수 있다. 그 시각이 지나면 저절로 다시 잠긴다.
-   요일 제한(월 화 목 금)과 학부모 동의 · 하루 자리 하나 · 바꾸기 3번은 그대로다.
+   요일 제한(월 화 목 금)과 학부모 동의 · 하루 자리 하나 · 바꾸기 횟수(MAX_CHANGES)는 그대로다.
    ⚠ 시트 메뉴로만 켠다 — 교사 화면에 단추를 두면 교사 비밀번호를 아는 누구나 풀 수 있게 된다.
    학생이 20초마다 읽으므로 스크립트 속성을 매번 읽지 않고 캐시에 둔다(속성 읽기는 하루 한도가 있다). */
 var FREE_MAX_H = 12;
@@ -607,6 +607,9 @@ function recOf_(row, r) {
 }
 function newRec_() { return { r: 0, seat: 0, p1: '', p2: '', memo: '', at: '', ch: 0, ap: null, pc: '' }; }
 
+/** 횟수를 읽기 좋게 — 1 → 「한 번」, 3 → 「3번」 (화면 student.html 의 timesText 와 같은 규칙) */
+function timesText_(n) { return n === 1 ? '한 번' : n + '번'; }
+
 /** 「그날 신청」 칸 — 신청 → true, 미신청 → false, 빈칸(예전 기록) → null */
 function apOf_(v) { var s = str_(v); return s === '신청' ? true : (s === '미신청' ? false : null); }
 
@@ -941,8 +944,10 @@ function apiPick(token, seat, consent) {
         return fail_('오늘은 신청하지 않은 날입니다. 학부모님께 허락을 받았다면 「학부모 동의」 를 체크한 뒤 자리를 고르세요.', { needConsent: true });
       }
       if (rec.seat === seat) return { ok: true, seat: seat, changesLeft: MAX_CHANGES - rec.ch };
-      if (rec.at) {                                  // 한 번 고른 적이 있으면 바꾸기로 센다
-        if (rec.ch >= MAX_CHANGES) return fail_('오늘은 자리를 ' + MAX_CHANGES + '번까지만 바꿀 수 있습니다. 바꿔야 하면 감독 선생님께 말씀드리세요.');
+      /* 지금 앉아 있는 자리에서 옮길 때만 바꾸기로 센다 — 선생님이 [자리 빼기] 한 뒤 다시 고르는 것은 세지 않는다
+         (세면 바꾸기를 이미 쓴 학생은 자리를 빼앗긴 뒤 어디에도 앉지 못한다) */
+      if (rec.at && rec.seat) {
+        if (rec.ch >= MAX_CHANGES) return fail_('오늘은 자리를 ' + timesText_(MAX_CHANGES) + '만 바꿀 수 있어 더 바꿀 수 없습니다. 바꿔야 하면 감독 선생님께 말씀드리세요.');
         rec.ch += 1;
       }
       if (isNew) rec.ap = win.applied;

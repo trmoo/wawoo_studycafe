@@ -157,7 +157,9 @@ function render() {
   $('whyText').textContent = !b.open ? b.why
     : fixedWait ? '지정석이 있어 오늘은 ' + b.fixed + '번에만 앉습니다. 자리에 와서 배치도의 ' + b.fixed + '번을 눌러 「앉았어요」 를 알려 주세요.'
     : b.fixedOnly ? '지정석에 앉았습니다. 지정석이 있는 학생은 다른 자리로 바꿀 수 없습니다 — 바꿔야 하면 선생님께 말씀드리세요.'
-    : b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 오늘 바꿀 수 있는 횟수: ' + Math.max(0, b.changesLeft) + '번'
+    : b.mine && b.changesLeft <= 0 ? '오늘은 자리를 이미 바꿨습니다(하루 ' + timesText(BOOT_DATA.maxChanges) + '). 더 바꿔야 하면 감독 선생님께 말씀드리세요.'
+    : b.mine ? '다른 빈자리를 누르면 자리를 바꿉니다. 자리는 하루 ' + timesText(BOOT_DATA.maxChanges) + '만 바꿀 수 있습니다' +
+      (b.changesLeft < BOOT_DATA.maxChanges ? ' (오늘 남은 횟수: ' + b.changesLeft + '번)' : '') + '.'
     : needConsent() ? '아래 「학부모 동의」 를 체크한 뒤 빈자리를 눌러 오늘 앉을 자리를 고르세요.' : '빈자리를 눌러 오늘 앉을 자리를 고르세요.';
   renderConsent(b);
   drawMap($('mapbox'), function (no) {
@@ -172,7 +174,8 @@ function render() {
         onclick: tap ? function () { pick(no); } : null
       };
     }
-    var can = b.open && !b.fixedOnly;
+    /* 바꾸기를 다 쓴 학생에게는 빈자리를 누를 수 없게 둔다 (서버도 막는다 — 화면은 헛걸음만 줄인다) */
+    var can = b.open && !b.fixedOnly && !(b.mine && b.changesLeft <= 0);
     return {
       cls: 'empty' + (can ? ' pickable' : ''),
       title: no + '번 · 빈자리',
@@ -183,6 +186,9 @@ function render() {
   var focus = b.mine || b.fixed;
   if (focus && S.scrolledTo !== focus) { scrollToSeat($('mapbox'), focus); S.scrolledTo = focus; }
 }
+
+/** 횟수를 읽기 좋게 — 1 → 「한 번」, 3 → 「3번」 (서버 Code.gs 의 timesText_ 와 같은 규칙) */
+function timesText(n) { return n === 1 ? '한 번' : n + '번'; }
 
 /** 오늘 신청하지 않은 날이고, 아직 학부모 동의를 체크하고 자리를 고른 적이 없는가 */
 function needConsent() {
@@ -227,7 +233,9 @@ function pick(no) {
   var text = toFixed && !b.mine
     ? '지금 ' + no + '번 지정석에 앉았나요? 「앉았어요」 를 누르면 감독 선생님 화면에 오늘 내 자리로 보입니다.'
     : b.mine
-    ? b.mine + '번에서 ' + no + '번으로 자리를 바꿀까요? 바꾸면 오늘 남은 바꾸기 횟수가 ' + Math.max(0, b.changesLeft - 1) + '번이 됩니다.'
+    ? b.mine + '번에서 ' + no + '번으로 자리를 바꿀까요? ' + (b.changesLeft - 1 <= 0
+      ? '자리는 하루 ' + timesText(BOOT_DATA.maxChanges) + '만 바꿀 수 있어, 바꾸면 오늘은 더 바꿀 수 없습니다.'
+      : '바꾸면 오늘 남은 바꾸기 횟수가 ' + (b.changesLeft - 1) + '번이 됩니다.')
     : no + '번 자리로 정할까요?' + (nc ? ' 오늘은 신청하지 않은 날이라 「학부모 동의」 체크와 함께 감독 선생님 화면에 「미신청 참여」 로 보입니다. 1 · 2교시 모두 참여합니다.' : '');
   ask(no + (toFixed ? '번 지정석' : '번 자리'), text, toFixed && !b.mine ? '네, 앉았어요' : '네, 이 자리로').then(function (yes) {
     if (!yes) return;

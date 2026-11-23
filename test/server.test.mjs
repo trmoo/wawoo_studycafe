@@ -325,16 +325,34 @@ describe('학생 — 자리 고르기', () => {
     const r = api.apiPick(b.token, 42);
     ok(!r.ok && r.refresh, r.msg);
   });
-  test('자리 바꾸기는 하루 3번까지', () => {
+  test('자리 바꾸기는 하루 한 번만 (2026-11-20 3번 → 1번)', () => {
+    const { api } = freshServer();
+    const tk = teacher(api);
+    const s = student(api, tk);
+    const first = api.apiPick(s.token, 1);
+    ok(first.ok && first.changesLeft === 1, '처음 고르기는 세지 않는다 — 남은 횟수 ' + first.changesLeft);
+    at(api, '2026-11-16 18:11');
+    const moved = api.apiPick(s.token, 2);
+    ok(moved.ok && moved.changesLeft === 0, '한 번 바꾸면 남은 횟수 0 — ' + moved.changesLeft);
+    ok(api.apiPick(s.token, 2).ok, '지금 앉은 자리를 다시 누르는 것은 바꾸기가 아니다');
+    at(api, '2026-11-16 18:12');
+    const r = api.apiPick(s.token, 3);
+    ok(!r.ok && r.msg.indexOf('한 번') >= 0, r.msg);
+    eq(api.apiBoard(s.token).changesLeft, 0, '배치도 응답도 남은 횟수 0');
+  });
+  test('선생님이 [자리 빼기] 한 뒤 다시 고르는 것은 바꾸기로 세지 않는다', () => {
     const { api } = freshServer();
     const tk = teacher(api);
     const s = student(api, tk);
     ok(api.apiPick(s.token, 1).ok);
-    let t = 0;
-    for (const seat of [2, 3, 4]) { at(api, '2026-11-16 18:1' + (++t)); ok(api.apiPick(s.token, seat).ok, seat + '번'); }
-    at(api, '2026-11-16 18:20');
-    const r = api.apiPick(s.token, 5);
-    ok(!r.ok && r.msg.indexOf('3번') >= 0, r.msg);
+    at(api, '2026-11-16 18:11');
+    ok(api.apiPick(s.token, 2).ok, '하나뿐인 바꾸기를 씀');
+    ok(api.apiTUpdate(tk, '2026-11-16', s.id, { clearSeat: true }).ok);
+    at(api, '2026-11-16 18:12');
+    const r = api.apiPick(s.token, 3);
+    ok(r.ok, '자리를 빼앗긴 학생이 어디에도 못 앉으면 안 된다 — ' + (r.msg || ''));
+    at(api, '2026-11-16 18:13');
+    ok(!api.apiPick(s.token, 4).ok, '그다음 옮기기는 여전히 막힌다');
   });
   test('너무 빠르게 누르면 막는다', () => {
     const { api } = freshServer();

@@ -78,7 +78,7 @@ const demo = `<!DOCTYPE html>
         📌 지정석(40번)이 있는 학생: <b>10237</b> · <b>최다온</b> · PIN <b>1618</b><br>
         야자 명단에 없는 학생: <b>10238</b> · 아무 한글 이름 (처음 등록 → PIN 정하기)</div>
       <ul>
-        <li>빈자리를 누르면 오늘 자리로 정합니다. 하루 3번까지 바꿀 수 있습니다.</li>
+        <li>빈자리를 누르면 오늘 자리로 정합니다. 하루 한 번만 바꿀 수 있습니다.</li>
         <li>신청하지 않은 날이나 야자를 신청하지 않은 학생도 <b>「학부모 동의」 를 체크</b>하면 자리를 고를 수 있습니다 — 신청한 학생보다 늦은 <b>17:30부터</b>.</li>
         <li>지정석이 있는 학생은 신청한 날 자기 자리(📌)를 눌러 「앉았어요」 를 알립니다.</li>
         <li>다른 학생은 <b>홍*동</b> 처럼 가린 이름만 보이고, 학번 · 학년은 보이지 않습니다.</li>
@@ -138,6 +138,12 @@ if (href('goTeacher') !== 'app/teacher.html') fail('교사 단추(goTeacher)는 
   if (!v) fail('Code.gs 에서 ' + k + ' 를 찾지 못했습니다.');
   if (launch.indexOf(v) < 0) fail('Code.gs 의 ' + k + ' (' + v + ') 가 안내 글에 없습니다 — 시각을 맞춰 주세요.');
 });
+/* 자리 바꾸기 횟수도 안내 글과 맞아야 한다 (2026-11-20 3번 → 한 번으로 바꾸며 더했다) */
+const maxCh = Number((code.match(/var MAX_CHANGES = (\d+);/) || [])[1]);
+if (!maxCh) fail('Code.gs 에서 MAX_CHANGES 를 찾지 못했습니다.');
+const chText = '하루 ' + (maxCh === 1 ? '한 번' : maxCh + '번');
+if (launch.replace(/<[^>]+>/g, '').indexOf(chText) < 0) fail('안내 글에 「' + chText + '」 이 없습니다 — Code.gs 의 MAX_CHANGES (' + maxCh + ') 와 맞춰 주세요.');
+if (demo.replace(/<[^>]+>/g, '').indexOf(chText) < 0) fail('체험판 안내 글에 「' + chText + '」 이 없습니다 — Code.gs 의 MAX_CHANGES (' + maxCh + ') 와 맞춰 주세요.');
 /* 첫 화면도 교내에서 함께 쓰는 곳이라 푸터에 저작권 표시를 두지 않는다 (2026-11-17 사용자 지시) */
 const launchFoot = (launch.match(/<footer>[\s\S]*?<\/footer>/) || [''])[0];
 if (!launchFoot) fail('화면 푸터(<footer>)가 없습니다.');
