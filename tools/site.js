@@ -114,11 +114,17 @@ const demo = `<!DOCTYPE html>
   </div>
 
   <p class="note" style="text-align:center"><a href="./">← 첫 화면(실제 앱 바로가기)</a></p>
-  <footer>© 2026 티쳐무 · 모든 권리 보유. 학교 수업 · 학급 운영 목적으로만 이용해 주세요. 오픈소스 라이선스를 붙이지 않았습니다.</footer>
+  <footer>1·2학년 자습실 좌석배치도 · 체험판</footer>
 </div>
 </body>
 </html>
 `;
+/* 체험판 안내 화면도 푸터에 저작권 표시를 두지 않는다 (2026-11-23 사용자 지시). 머리 주석 · LICENSE · README 에는 남긴다. */
+const demoFoot = (demo.match(/<footer>[\s\S]*?<\/footer>/) || [''])[0];
+if (!demoFoot || /티쳐무|모든 권리 보유/.test(demoFoot)) {
+  console.error('✖ demo.html — 화면 푸터가 없거나 저작권 표시가 있습니다.');
+  process.exit(1);
+}
 fs.writeFileSync(path.join(OUT, 'demo.html'), demo, 'utf8');
 
 /* 첫 화면 = 실제 앱 바로가기 + 깃허브에서 띄우는 실제 앱 화면(app/).

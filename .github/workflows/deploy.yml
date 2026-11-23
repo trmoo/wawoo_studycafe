@@ -48,9 +48,8 @@ jobs:
           size=$(wc -c < dist/site/teacher.html)
           echo "teacher.html = $size bytes"
           test "$size" -gt 100000
-          grep -q "티쳐무" dist/site/demo.html
-          # 교내에서 함께 쓰는 화면(첫 화면 · 실제 앱 · 체험 앱)의 푸터에는 저작권 표시를 두지 않는다
-          for f in index.html student.html teacher.html app/index.html app/teacher.html; do
+          # 화면 푸터(첫 화면 · 실제 앱 · 체험판 안내 · 체험 앱)에는 저작권 표시를 두지 않는다
+          for f in index.html demo.html student.html teacher.html app/index.html app/teacher.html; do
             if sed -n '/<footer>/,/<\/footer>/p' "dist/site/$f" | grep -q "티쳐무"; then echo "화면 푸터에 저작권 표시: $f"; exit 1; fi
           done
       - uses: actions/configure-pages@v5
